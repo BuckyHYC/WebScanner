@@ -1,5 +1,4 @@
 import type { FilterState, Page, Point } from '../types';
-import { fullQuad } from '../store/useStore';
 import { loadOpenCV } from './opencvLoader';
 import { detectQuadInCanvas } from './detect';
 import { targetSizeFromQuad, quadToPixels } from './geometry';
@@ -161,7 +160,7 @@ export async function renderFinal(page: Page, maxEdge: number, reuseCanvas?: HTM
   }
 }
 
-/** 对一页执行自动边缘检测并更新角点（在低清预览上检测，保证速度） */
+/** 对一页执行自动边缘检测并更新角点（在低清预览上检测，保证速度）。未识别返回 null */
 export async function autoDetectPage(page: Page): Promise<Point[] | null> {
   const cv = await loadOpenCV();
   const img = new Image();
@@ -172,6 +171,5 @@ export async function autoDetectPage(page: Page): Promise<Point[] | null> {
   canvas.width = Math.max(1, Math.round(img.width * scale));
   canvas.height = Math.max(1, Math.round(img.height * scale));
   canvas.getContext('2d', { willReadFrequently: true })!.drawImage(img, 0, 0, canvas.width, canvas.height);
-  const quad = detectQuadInCanvas(cv, canvas);
-  return quad ?? fullQuad();
+  return detectQuadInCanvas(cv, canvas);
 }

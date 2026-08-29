@@ -65,7 +65,7 @@ export async function backgroundDetect(pages: Page[]) {
     if (!useStore.getState().pages.some((x) => x.id === p.id)) continue;
     try {
       const quad = await autoDetectPage(p);
-      useStore.getState().updatePage(p.id, { corners: quad! }, false);
+      if (quad) useStore.getState().updatePage(p.id, { corners: quad }, false);
     } catch (e) {
       console.warn('自动检测失败', e);
     }

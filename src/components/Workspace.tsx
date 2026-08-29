@@ -21,7 +21,7 @@ async function runAutoCropAll() {
   for (const p of pages) {
     try {
       const quad = await autoDetectPage(p);
-      useStore.getState().updatePage(p.id, { corners: quad! }, false);
+      if (quad) useStore.getState().updatePage(p.id, { corners: quad }, false);
     } catch {
       /* 忽略单页失败 */
     }

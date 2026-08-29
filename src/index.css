@@ -11,6 +11,25 @@ body,
 body {
   @apply bg-ink-950 text-slate-200 antialiased;
   overscroll-behavior: none;
+  /* 交互类 UI 全局禁止选中文字，消除移动端长按选中/高亮 */
+  -webkit-user-select: none;
+  user-select: none;
+  -webkit-tap-highlight-color: transparent;
+  -webkit-touch-callout: none;
+}
+
+/* 输入类控件允许选中文字 */
+input,
+textarea {
+  -webkit-user-select: text;
+  user-select: text;
+}
+
+/* 图片/画布禁止原生拖拽与长按菜单 */
+img,
+canvas,
+svg {
+  -webkit-user-drag: none;
 }
 
 @layer components {
