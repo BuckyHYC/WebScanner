@@ -6,6 +6,7 @@ import { loadOpenCV } from './utils/opencvLoader';
 import Home from './components/Home';
 import Workspace from './components/Workspace';
 import CameraView from './components/CameraView';
+import CvProgressBar from './components/CvProgressBar';
 
 export default function App() {
   const view = useStore((s) => s.view);
@@ -92,6 +93,9 @@ export default function App() {
       {view === 'home' ? <Home draftRestored={draftRestored} onDraftSeen={() => setDraftRestored(false)} /> : <Workspace />}
 
       {cameraOpen && <CameraView />}
+
+      {/* OpenCV 引擎加载进度 */}
+      <CvProgressBar />
 
       {/* 导出进度遮罩 */}
       {exporting?.active && (

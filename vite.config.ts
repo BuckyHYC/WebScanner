@@ -10,12 +10,11 @@ export default defineConfig({
     port: 5173,
   },
   build: {
-    // opencv-js wasm 体积大，放宽分块警告
+    // heic2any 等大依赖动态分包
     chunkSizeWarningLimit: 15000,
     rollupOptions: {
       output: {
         manualChunks: {
-          opencv: ['@techstark/opencv-js'],
           vendor: ['react', 'react-dom', 'zustand'],
           exporter: ['pdf-lib', 'jszip'],
         },

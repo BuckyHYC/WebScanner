@@ -1,6 +1,9 @@
 # 依赖
 node_modules/
 
+# opencv.js 由 scripts/copy-opencv.js 从 node_modules 生成
+public/opencv/
+
 # 构建产物
 dist/
 dist-ssr/
