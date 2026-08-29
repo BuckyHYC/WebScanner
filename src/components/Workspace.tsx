@@ -1,0 +1,178 @@
+import { useEffect, useState } from 'react';
+import { useStore } from '../store/useStore';
+import { useShortcuts } from '../hooks/useShortcuts';
+import ThumbList from './ThumbList';
+import CropStage from './CropStage';
+import EnhanceStage from './EnhanceStage';
+import FilterPanel from './FilterPanel';
+import ExportDialog from './ExportDialog';
+import { importFiles } from '../utils/importer';
+import { autoDetectPage } from '../utils/render';
+import type { Page } from '../types';
+
+/** 批量自动裁剪：逐页重测角点（共享一段历史快照） */
+async function runAutoCropAll() {
+  const s = useStore.getState();
+  const pages = s.pages;
+  if (pages.length === 0) return;
+  const snapshots = pages.map((p) => ({ ...p }));
+  useStore.setState({ past: [...s.past.slice(-49), { pages: snapshots }], future: [] });
+  useStore.getState().toast('正在批量识别边缘…');
+  for (const p of pages) {
+    try {
+      const quad = await autoDetectPage(p);
+      useStore.getState().updatePage(p.id, { corners: quad! }, false);
+    } catch {
+      /* 忽略单页失败 */
+    }
+  }
+  useStore.getState().toast('批量自动裁剪完成', 'success');
+}
+
+export default function Workspace() {
+  const pages = useStore((s) => s.pages);
+  const current = useStore((s) => s.current);
+  const [tab, setTab] = useState<'crop' | 'enhance'>('crop');
+  const [exportOpen, setExportOpen] = useState(false);
+  const [mobilePanel, setMobilePanel] = useState(false);
+  const [insertFileRef] = useState<{ current: ((f: File[]) => void) | null }>(() => ({ current: null }));
+  const page: Page | undefined = pages[current];
+
+  useShortcuts();
+
+  // 无页面时回首页
+  useEffect(() => {
+    if (pages.length === 0) useStore.getState().setView('home');
+  }, [pages.length]);
+
+  if (!page) return null;
+
+  return (
+    <div className="h-full flex flex-col min-h-0">
+      {/* ===== 顶部工具栏 ===== */}
+      <header className="flex items-center gap-1 px-2 sm:px-3 h-12 border-b border-ink-700 bg-ink-900 shrink-0">
+        <button className="btn-ghost px-2" title="返回首页" onClick={() => useStore.getState().setView('home')}>
+          🏠
+        </button>
+        <span className="hidden sm:inline font-semibold mr-2">智能扫描</span>
+        <span className="text-xs text-slate-500 hidden md:inline">
+          {pages.length} 页 · 当前 {current + 1}
+        </span>
+        <div className="flex-1" />
+        <button className="btn-ghost" title="撤销 (Ctrl+Z)" onClick={() => useStore.getState().undo()}>
+          ↩️
+        </button>
+        <button className="btn-ghost" title="重做 (Ctrl+Y)" onClick={() => useStore.getState().redo()}>
+          ↪️
+        </button>
+        <button
+          className="btn-ghost"
+          title="批量自动裁剪"
+          onClick={() => void runAutoCropAll()}
+        >
+          ✂️<span className="hidden sm:inline ml-1">全部裁剪</span>
+        </button>
+        <button
+          className="btn-ghost"
+          title="全部自动增强"
+          onClick={() => {
+            useStore.getState().autoEnhanceAll();
+            useStore.getState().toast('已对全部页面应用自动增强', 'success');
+          }}
+        >
+          ✨<span className="hidden sm:inline ml-1">全部增强</span>
+        </button>
+        <button className="btn-ghost" title="添加图片" onClick={() => document.getElementById('ws-file-input')?.click()}>
+          ➕<span className="hidden sm:inline ml-1">添加</span>
+        </button>
+        <button className="btn-ghost" title="拍照" onClick={() => useStore.getState().setCameraOpen(true)}>
+          📷<span className="hidden sm:inline ml-1">拍照</span>
+        </button>
+        <button className="btn-primary ml-1" onClick={() => setExportOpen(true)}>
+          导出
+        </button>
+      </header>
+
+      {/* ===== 主体三栏（PC）/ 单栏（移动）===== */}
+      <div className="flex-1 flex min-h-0">
+        <ThumbList direction="vertical" className="hidden md:flex w-52 lg:w-60 border-r border-ink-700 bg-ink-900" />
+
+        <main className="flex-1 min-w-0 flex flex-col">
+          {/* 裁剪 / 增强 Tab */}
+          <div className="flex items-center gap-1 px-3 h-10 border-b border-ink-700 bg-ink-900/60 shrink-0">
+            {(
+              [
+                ['crop', '① 裁剪矫正'],
+                ['enhance', '② 增强滤镜'],
+              ] as const
+            ).map(([k, label]) => (
+              <button
+                key={k}
+                className={`px-3 py-1.5 rounded-t-lg text-sm font-medium ${
+                  tab === k ? 'bg-ink-800 text-accent' : 'text-slate-400 hover:text-slate-200'
+                }`}
+                onClick={() => setTab(k)}
+              >
+                {label}
+              </button>
+            ))}
+            <div className="flex-1" />
+            <span className="text-xs text-slate-500 hidden sm:inline">
+              {page.name} · {page.width}×{page.height}
+            </span>
+          </div>
+
+          <div className="flex-1 min-h-0 relative bg-ink-950">
+            {tab === 'crop' ? <CropStage page={page} onNext={() => setTab('enhance')} /> : <EnhanceStage page={page} />}
+          </div>
+        </main>
+
+        <FilterPanel page={page} className="hidden lg:flex w-80 border-l border-ink-700 bg-ink-900 flex-col overflow-y-auto" />
+      </div>
+
+      {/* ===== 移动底部：缩略图横滑 + 工具 ===== */}
+      <div className="md:hidden relative shrink-0 border-t border-ink-700 bg-ink-900 safe-bottom">
+        <ThumbList direction="horizontal" className="flex gap-2 overflow-x-auto px-2 py-2" />
+        <div className="flex items-center gap-1 px-2 py-1.5 border-t border-ink-800 overflow-x-auto">
+          <button className="btn-panel shrink-0 text-xs" onClick={() => setMobilePanel((v) => !v)}>
+            🎛️ 滤镜
+          </button>
+          <button className="btn-panel shrink-0 text-xs" onClick={() => setTab('crop')}>
+            ✂️ 裁剪
+          </button>
+          <button className="btn-panel shrink-0 text-xs" onClick={() => useStore.getState().setCameraOpen(true)}>
+            📷 拍照
+          </button>
+          <button className="btn-panel shrink-0 text-xs" onClick={() => void runAutoCropAll()}>
+            ✂️ 全部裁剪
+          </button>
+          <div className="flex-1" />
+          <button className="btn-primary shrink-0 text-xs" onClick={() => setExportOpen(true)}>
+            导出
+          </button>
+        </div>
+        {mobilePanel && (
+          <div className="absolute right-0 bottom-0 top-12 w-72 z-40 bg-ink-900 border-l border-ink-700 overflow-y-auto lg:hidden">
+            <FilterPanel page={page} className="flex flex-col p-3 gap-4" onDone={() => setMobilePanel(false)} />
+          </div>
+        )}
+      </div>
+
+      {/* 隐藏的添加文件入口（供工具栏"添加"按钮与指定位置插入复用） */}
+      <input
+        id="ws-file-input"
+        type="file"
+        accept="image/*,.heic,.heif,.tif,.tiff"
+        multiple
+        className="hidden"
+        onChange={(e) => {
+          const files = Array.from(e.target.files ?? []);
+          if (files.length > 0) void importFiles(files);
+          e.target.value = '';
+        }}
+      />
+
+      {exportOpen && <ExportDialog onClose={() => setExportOpen(false)} />}
+    </div>
+  );
+}

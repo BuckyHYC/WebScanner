@@ -1,0 +1,32 @@
+{
+  "name": "webscanner",
+  "private": true,
+  "version": "1.0.0",
+  "type": "module",
+  "description": "纯前端智能扫描工具：边缘检测、透视矫正、滤镜增强、PDF/JPG 导出，全程本地处理",
+  "scripts": {
+    "dev": "vite",
+    "build": "tsc --noEmit && vite build",
+    "preview": "vite preview"
+  },
+  "dependencies": {
+    "@techstark/opencv-js": "^4.12.0-release.1",
+    "heic2any": "^0.0.4",
+    "jszip": "^3.10.1",
+    "pdf-lib": "^1.17.1",
+    "react": "^18.3.1",
+    "react-dom": "^18.3.1",
+    "utif": "^3.1.0",
+    "zustand": "^4.5.5"
+  },
+  "devDependencies": {
+    "@types/react": "^18.3.12",
+    "@types/react-dom": "^18.3.1",
+    "@vitejs/plugin-react": "^4.3.4",
+    "autoprefixer": "^10.4.20",
+    "postcss": "^8.4.49",
+    "tailwindcss": "^3.4.15",
+    "typescript": "~5.6.3",
+    "vite": "^5.4.11"
+  }
+}
