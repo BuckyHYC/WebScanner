@@ -10,6 +10,8 @@ export type FilterMode = 'original' | 'magic' | 'color' | 'gray' | 'bw' | 'photo
 /** 每页滤镜/增强参数（全部可手动微调） */
 export interface FilterState {
   mode: FilterMode;
+  /** 智能增强强度 0~100（对应 0.0~1.0，仅 magic 模式） */
+  strength: number;
   brightness: number; // -100~100
   contrast: number;   // -100~100
   saturation: number; // -100~100

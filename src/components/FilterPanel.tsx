@@ -13,6 +13,8 @@ interface SliderDef {
   min: number;
   max: number;
   step?: number;
+  /** 自定义数值显示（如 0~100 → 0.0~1.0） */
+  display?: (v: number) => string;
 }
 
 /** 各模式可见的滑块配置 */
@@ -25,17 +27,19 @@ function slidersFor(mode: FilterMode): SliderDef[] {
     { key: 'saturation', label: '饱和度', min: -100, max: 100 },
     { key: 'sharpen', label: '锐化', min: 0, max: 100 },
   ];
-  const adv: SliderDef[] = [
-    { key: 'shadow', label: '去阴影', min: 0, max: 100 },
-    { key: 'cleanBg', label: '背景净化', min: 0, max: 100 },
-  ];
   switch (mode) {
+    case 'magic':
+      return [
+        { key: 'strength', label: '增强强度', min: 0, max: 100, step: 5, display: (v) => (v / 100).toFixed(1) },
+        ...bc,
+        ...sc,
+      ];
     case 'bw':
       return [
         { key: 'block', label: '阈值块大小', min: 3, max: 99, step: 2 },
         { key: 'cValue', label: '阈值强度 C', min: -10, max: 40 },
         { key: 'denoise', label: '降噪', min: 0, max: 100 },
-        ...adv.slice(0, 1),
+        { key: 'shadow', label: '去阴影', min: 0, max: 100 },
         ...bc,
       ];
     case 'gray':
@@ -43,7 +47,7 @@ function slidersFor(mode: FilterMode): SliderDef[] {
     case 'photo':
       return [...bc, ...sc, { key: 'denoise', label: '降噪', min: 0, max: 100 }];
     default:
-      return [...bc, ...sc, ...adv];
+      return [...bc, ...sc, { key: 'shadow', label: '去阴影', min: 0, max: 100 }, { key: 'cleanBg', label: '背景净化', min: 0, max: 100 }];
   }
 }
 
@@ -105,7 +109,9 @@ export default function FilterPanel({ page, className = '', onDone }: Props) {
           <label key={String(s.key)} className="flex flex-col gap-1">
             <span className="flex justify-between text-xs text-slate-400">
               <span>{s.label}</span>
-              <span className="tabular-nums text-slate-300">{f[s.key]}</span>
+              <span className="tabular-nums text-slate-300">
+                {s.display ? s.display(Number(f[s.key])) : f[s.key]}
+              </span>
             </span>
             <input
               type="range"

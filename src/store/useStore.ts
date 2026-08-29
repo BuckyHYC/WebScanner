@@ -5,12 +5,13 @@ import type { FilterState, Page, Point, Toast } from '../types';
 export function defaultFilter(mode: FilterState['mode'] = 'original'): FilterState {
   return {
     mode,
+    strength: mode === 'magic' ? 80 : 0,
     brightness: 0,
     contrast: 0,
     saturation: 0,
-    sharpen: mode === 'magic' || mode === 'color' || mode === 'photo' ? 25 : 0,
-    shadow: mode === 'magic' ? 60 : mode === 'color' ? 55 : 0,
-    cleanBg: mode === 'magic' ? 40 : mode === 'color' ? 45 : 0,
+    sharpen: 0,
+    shadow: 0,
+    cleanBg: 0,
     denoise: 0,
     block: 41,
     cValue: 10,

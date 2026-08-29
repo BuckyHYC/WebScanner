@@ -5,6 +5,7 @@ import { createMatPool } from './opencvLoader';
 export function isFilterActive(f: FilterState): boolean {
   return (
     f.mode !== 'original' ||
+    f.strength !== 0 ||
     f.brightness !== 0 ||
     f.contrast !== 0 ||
     f.saturation !== 0 ||
@@ -143,6 +144,165 @@ function cleanBackground(cv: any, rgba: any, strength: number): any {
 }
 
 /**
+ * 智能增强（类 CamScanner「智能增强」），k = 增强强度 0~1：
+ * 1) 阴影/光照去除：低分辨率上形态学闭 + 高斯平滑估计背景光照层，逐通道除法归一化（背景→纯白）
+ * 2) 自适应局部对比度：CLAHE 作用在亮度通道（clipLimit 随强度提升）
+ * 3) 白点拉伸：把背景灰度映射到 255，黑色文字保持纯黑
+ * 4) 非锐化掩模：文字边缘锐化
+ * 5) 最终与光照归一化底图按 k 混合（k=0 仅干净底图，k=1 全部增强）
+ */
+function magicSmartEnhance(cv: any, rgba: any, k: number): any {
+  const pool = createMatPool();
+  try {
+    // ---- 1) 背景光照层估计与除法归一化 ----
+    const bgr = pool.add(new cv.Mat());
+    cv.cvtColor(rgba, bgr, cv.COLOR_RGBA2BGR);
+
+    // 光照是低频成分：在低分辨率上估计背景（快且稳），再放大回原尺寸
+    const scale = Math.min(1, 384 / bgr.cols);
+    const sw = Math.max(32, Math.round(bgr.cols * scale));
+    const sh = Math.max(32, Math.round(bgr.rows * scale));
+    const small = pool.add(new cv.Mat());
+    cv.resize(bgr, small, new cv.Size(sw, sh), 0, 0, cv.INTER_AREA);
+
+    // 形态学闭操作：把暗色文字笔画从背景层中抹掉（核大小约为小图短边的 1/6）
+    const kern = oddify(Math.round(Math.min(sw, sh) / 6), 15, 121);
+    const kernel = pool.add(cv.getStructuringElement(cv.MORPH_ELLIPSE, new cv.Size(kern, kern)));
+    const closed = pool.add(new cv.Mat());
+    cv.morphologyEx(small, closed, cv.MORPH_CLOSE, kernel);
+
+    // 高斯平滑光照层，避免放大后出现光晕
+    const bgSmall = pool.add(new cv.Mat());
+    cv.GaussianBlur(closed, bgSmall, new cv.Size(0, 0), kern / 3, kern / 3, cv.BORDER_DEFAULT);
+
+    const bg = pool.add(new cv.Mat());
+    cv.resize(bgSmall, bg, new cv.Size(bgr.cols, bgr.rows), 0, 0, cv.INTER_LINEAR);
+
+    // 逐通道除法：norm = src * 255 / bg —— 背景自动映射到 ~255，阴影被消除
+    const base = pool.add(new cv.Mat());
+    cv.divide(bgr, bg, base, 255, -1);
+    const baseRgba = pool.add(new cv.Mat());
+    cv.cvtColor(base, baseRgba, cv.COLOR_BGR2RGBA);
+
+    // ---- 2) CLAHE 自适应局部对比度（亮度通道）----
+    // 该构建没有 Lab 转换，用灰度作为亮度层：CLAHE 增强后的灰度与原灰度的比值
+    // 按比例乘回 RGB —— 提升局部对比度的同时保留色相。
+    const grayOld = pool.add(new cv.Mat());
+    cv.cvtColor(baseRgba, grayOld, cv.COLOR_RGBA2GRAY);
+    const grayNew = pool.add(new cv.Mat());
+    const clahe = new cv.CLAHE(1.0 + 2.5 * k, new cv.Size(8, 8));
+    clahe.apply(grayOld, grayNew);
+    clahe.delete?.();
+
+    // ratio = newGray / oldGray（32F 精确除法，避免 8U 截断），再乘回各通道
+    const ratioF = pool.add(new cv.Mat());
+    const grayOldF = pool.add(new cv.Mat());
+    const grayNewF = pool.add(new cv.Mat());
+    grayOld.convertTo(grayOldF, cv.CV_32F, 1 / 255, 1e-3); // 加小常数防除零
+    grayNew.convertTo(grayNewF, cv.CV_32F, 1 / 255, 0);
+    cv.divide(grayNewF, grayOldF, ratioF);
+    grayOldF.delete();
+    grayNewF.delete();
+
+    // ratio 扩成 3 通道，与 BGR 逐像素相乘（混合精度/通道数不匹配会触发 emscripten 断言）
+    const ratio3 = pool.add(new cv.Mat());
+    const ratioMv = pool.add(new cv.MatVector());
+    ratioMv.push_back(ratioF);
+    ratioMv.push_back(ratioF);
+    ratioMv.push_back(ratioF);
+    cv.merge(ratioMv, ratio3);
+
+    const bgrF = pool.add(new cv.Mat());
+    base.convertTo(bgrF, cv.CV_32F, 1, 0);
+    const boosted3 = pool.add(new cv.Mat());
+    cv.multiply(bgrF, ratio3, boosted3, 1, cv.CV_32F);
+    const boosted = pool.add(new cv.Mat());
+    boosted3.convertTo(boosted, cv.CV_8U, 1, 0);
+    const boostedRgba = pool.add(new cv.Mat());
+    cv.cvtColor(boosted, boostedRgba, cv.COLOR_BGR2RGBA);
+
+    // ---- 3) 白点拉伸：把背景映射到纯白（255），文字保持纯黑 ----
+    const stretch = pool.add(whitePointStretch(cv, boostedRgba, 0.96, 8));
+
+    // ---- 4) 非锐化掩模：文字边缘锐化 ----
+    const blur = pool.add(new cv.Mat());
+    cv.GaussianBlur(stretch, blur, new cv.Size(0, 0), 1.5, 1.5, cv.BORDER_DEFAULT);
+    const amt = 0.3 + 0.5 * k;
+    const sharp = pool.add(new cv.Mat());
+    cv.addWeighted(stretch, 1 + amt, blur, -amt, 0, sharp);
+
+    // ---- 5) 与光照归一化底图按强度混合 ----
+    const out = pool.add(new cv.Mat());
+    cv.addWeighted(sharp, k, baseRgba, 1 - k, 0, out);
+    return out.clone();
+  } finally {
+    pool.dispose();
+  }
+}
+
+/**
+ * 白点拉伸（灰度直方图百分位 → 线性 LUT）：
+ * out = clip((in - black) * 255 / (white - black))，背景→纯白，文字保持纯黑。
+ */
+function whitePointStretch(cv: any, rgba: any, percentile: number, blackPoint: number): any {
+  const gray = new cv.Mat();
+  const hist = new cv.Mat();
+  const planes = new cv.MatVector();
+  const mask = new cv.Mat();
+  try {
+    cv.cvtColor(rgba, gray, cv.COLOR_RGBA2GRAY);
+    // calcHist 需要以 MatVector 传入图像
+    planes.push_back(gray);
+    // 256 桶灰度直方图
+    cv.calcHist(planes, [0], mask, hist, [256], [0, 256]);
+    const total = gray.rows * gray.cols;
+    const target = total * percentile;
+    const h = hist.data32F;
+    let acc = 0;
+    let white = 255;
+    for (let v = 0; v < 256; v++) {
+      acc += h[v];
+      if (acc >= target) {
+        white = v;
+        break;
+      }
+    }
+    white = Math.max(96, Math.min(255, white)); // 防异常直方图
+    const b = Math.max(0, Math.min(blackPoint, white - 32));
+    const lut = new Uint8Array(256);
+    const denom = white - b;
+    for (let v = 0; v < 256; v++) {
+      lut[v] = Math.min(255, Math.max(0, Math.round(((v - b) * 255) / denom)));
+    }
+    // 仅作用于 RGB 三通道
+    const chans = new cv.MatVector();
+    const outChans = new cv.MatVector();
+    const merged = new cv.Mat();
+    try {
+      cv.split(rgba, chans);
+      for (let c = 0; c < 4; c++) {
+        const ch = chans.get(c);
+        const luted = c < 3 ? applyLut(cv, ch, lut) : ch.clone();
+        outChans.push_back(luted);
+        ch.delete();
+        luted.delete();
+      }
+      cv.merge(outChans, merged);
+      return merged.clone();
+    } finally {
+      chans.delete();
+      outChans.delete();
+      merged.delete();
+    }
+  } finally {
+    planes.delete();
+    mask.delete();
+    hist.delete();
+    gray.delete();
+  }
+}
+
+/**
  * 核心滤镜管线：输入 RGBA Mat，返回新的 RGBA Mat（调用方负责 delete 输入）。
  * 处理顺序：去阴影 → 模式特化 → 亮度/对比度 → 饱和度 → 锐化
  */
@@ -215,26 +375,11 @@ export function enhanceMat(cv: any, rgba: any, f: FilterState): any {
 
     // ===== 模式特化（彩色域）=====
     if (f.mode === 'magic') {
-      // 自动增强：Lab 亮度通道 CLAHE 局部对比度增强
-      const lab = pool.add(new cv.Mat());
-      cv.cvtColor(work, lab, cv.COLOR_RGBA2Lab);
-      const chans = pool.add(new cv.MatVector());
-      cv.split(lab, chans);
-      const clahe = cv.createCLAHE(2.0, new cv.Size(8, 8));
-      const l = chans.get(0);
-      const l2 = new cv.Mat();
-      clahe.apply(l, l2);
-      clahe.delete();
-      l.delete();
-      const merged = pool.add(new cv.MatVector());
-      merged.push_back(l2);
-      for (let i = 1; i < 3; i++) merged.push_back(chans.get(i));
-      const lab2 = pool.add(new cv.Mat());
-      cv.merge(merged, lab2);
-      const out = pool.add(new cv.Mat());
-      cv.cvtColor(lab2, out, cv.COLOR_Lab2RGBA);
+      // 智能增强：光照归一化 + CLAHE 局部对比度 + 白点拉伸 + 锐化，强度 k 控制
+      const k = Math.min(1, Math.max(0, (Number(f.strength) || 0) / 100));
+      const enhanced = magicSmartEnhance(cv, work, k);
       work.delete();
-      work = pool.add(out.clone());
+      work = pool.add(enhanced);
     } else if (f.mode === 'gray') {
       const g = pool.add(new cv.Mat());
       const out = pool.add(new cv.Mat());
