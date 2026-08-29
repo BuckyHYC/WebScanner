@@ -144,17 +144,13 @@ function cleanBackground(cv: any, rgba: any, strength: number): any {
 }
 
 /**
- * 智能增强（类 CamScanner「智能增强」），k = 增强强度 0~1：
- * 1) 阴影/光照去除：低分辨率上形态学闭 + 高斯平滑估计背景光照层，逐通道除法归一化（背景→纯白）
- * 2) 自适应局部对比度：CLAHE 作用在亮度通道（clipLimit 随强度提升）
- * 3) 白点拉伸：把背景灰度映射到 255，黑色文字保持纯黑
- * 4) 非锐化掩模：文字边缘锐化
- * 5) 最终与光照归一化底图按 k 混合（k=0 仅干净底图，k=1 全部增强）
+ * 背景光照归一化：低分辨率上形态学闭 + 高斯平滑估计背景光照层，
+ * 逐通道除法 norm = src*255/bg —— 阴影/光照不均被消除，背景自动映射到 ~255。
+ * 输入 RGBA，返回新 BGR Mat（调用方负责释放）。
  */
-function magicSmartEnhance(cv: any, rgba: any, k: number): any {
+function illuminationNormalize(cv: any, rgba: any): any {
   const pool = createMatPool();
   try {
-    // ---- 1) 背景光照层估计与除法归一化 ----
     const bgr = pool.add(new cv.Mat());
     cv.cvtColor(rgba, bgr, cv.COLOR_RGBA2BGR);
 
@@ -178,9 +174,119 @@ function magicSmartEnhance(cv: any, rgba: any, k: number): any {
     const bg = pool.add(new cv.Mat());
     cv.resize(bgSmall, bg, new cv.Size(bgr.cols, bgr.rows), 0, 0, cv.INTER_LINEAR);
 
-    // 逐通道除法：norm = src * 255 / bg —— 背景自动映射到 ~255，阴影被消除
     const base = pool.add(new cv.Mat());
     cv.divide(bgr, bg, base, 255, -1);
+    return base.clone();
+  } finally {
+    pool.dispose();
+  }
+}
+
+/** 饱和度缩放：HSV 的 S 通道乘 factor。输入输出均为 RGBA */
+function saturationScale(cv: any, rgba: any, factor: number): any {
+  const pool = createMatPool();
+  try {
+    const rgb = pool.add(new cv.Mat());
+    cv.cvtColor(rgba, rgb, cv.COLOR_RGBA2RGB);
+    const hsv = pool.add(new cv.Mat());
+    cv.cvtColor(rgb, hsv, cv.COLOR_RGB2HSV);
+    const chans = pool.add(new cv.MatVector());
+    cv.split(hsv, chans);
+    const s = chans.get(1);
+    const s2 = new cv.Mat();
+    cv.convertScaleAbs(s, s2, factor, 0);
+    s.delete();
+    const merged = pool.add(new cv.MatVector());
+    merged.push_back(chans.get(0));
+    merged.push_back(s2);
+    merged.push_back(chans.get(2));
+    const hsv2 = pool.add(new cv.Mat());
+    cv.merge(merged, hsv2);
+    const rgb2 = pool.add(new cv.Mat());
+    cv.cvtColor(hsv2, rgb2, cv.COLOR_HSV2RGB);
+    const out = pool.add(new cv.Mat());
+    cv.cvtColor(rgb2, out, cv.COLOR_RGB2RGBA);
+    return out.clone();
+  } finally {
+    pool.dispose();
+  }
+}
+
+/**
+ * 彩色文档增强（color 模式）：去阴影/泛黄 + 白背景 + 保彩鲜。
+ * 1) 光照归一化：低分辨率背景层逐通道除法（等比保留色相比），阴影/泛黄一次消除
+ * 2) 灰度白点拉伸：背景推到纯白
+ * 3) 饱和度补偿 ×1.3：把除法+拉伸淡化的前景色彩补回鲜艳
+ * 4) 轻度非锐化掩模
+ */
+function colorEnhance(cv: any, rgba: any): any {
+  const pool = createMatPool();
+  try {
+    // ---- 1) 光照归一化（逐通道除法，背景→~255，色相保留）----
+    const base = pool.add(illuminationNormalize(cv, rgba)); // BGR
+    const baseRgba = pool.add(new cv.Mat());
+    cv.cvtColor(base, baseRgba, cv.COLOR_BGR2RGBA);
+
+    // ---- 2) 灰度白点拉伸：背景推到纯白 ----
+    const stretched = pool.add(whitePointStretch(cv, baseRgba, 0.96, 8));
+
+    // ---- 3) 饱和度补偿 ×1.7 ----
+    const composited = pool.add(saturationScale(cv, stretched, 1.7));
+
+    // ---- 4) 轻度锐化 ----
+    const blur = pool.add(new cv.Mat());
+    cv.GaussianBlur(composited, blur, new cv.Size(0, 0), 1.2, 1.2, cv.BORDER_DEFAULT);
+    const out = pool.add(new cv.Mat());
+    cv.addWeighted(composited, 1.3, blur, -0.3, 0, out);
+    return out.clone();
+  } finally {
+    pool.dispose();
+  }
+}
+
+/**
+ * 估计背景光照层（32F 灰度）：低分辨率形态学闭 + 高斯平滑后放大回原尺寸。
+ * 输入 RGBA，返回单通道 CV_32F Mat（调用方负责释放）。
+ */
+function estimateBackgroundGray(cv: any, rgba: any): any {
+  const pool = createMatPool();
+  try {
+    const gray = pool.add(new cv.Mat());
+    cv.cvtColor(rgba, gray, cv.COLOR_RGBA2GRAY);
+    const scale = Math.min(1, 384 / gray.cols);
+    const sw = Math.max(32, Math.round(gray.cols * scale));
+    const sh = Math.max(32, Math.round(gray.rows * scale));
+    const small = pool.add(new cv.Mat());
+    cv.resize(gray, small, new cv.Size(sw, sh), 0, 0, cv.INTER_AREA);
+    const kern = oddify(Math.round(Math.min(sw, sh) / 6), 15, 121);
+    const kernel = pool.add(cv.getStructuringElement(cv.MORPH_ELLIPSE, new cv.Size(kern, kern)));
+    const closed = pool.add(new cv.Mat());
+    cv.morphologyEx(small, closed, cv.MORPH_CLOSE, kernel);
+    const bgSmall = pool.add(new cv.Mat());
+    cv.GaussianBlur(closed, bgSmall, new cv.Size(0, 0), kern / 3, kern / 3, cv.BORDER_DEFAULT);
+    const bg = pool.add(new cv.Mat());
+    cv.resize(bgSmall, bg, new cv.Size(gray.cols, gray.rows), 0, 0, cv.INTER_LINEAR);
+    const bgF = new cv.Mat();
+    bg.convertTo(bgF, cv.CV_32F, 1, 0);
+    return bgF.clone(); // 必须克隆：pool.dispose 会释放未克隆的中间 Mat
+  } finally {
+    pool.dispose();
+  }
+}
+
+/**
+ * 智能增强（类 CamScanner「智能增强」），k = 增强强度 0~1：
+ * 1) 阴影/光照去除：低分辨率上形态学闭 + 高斯平滑估计背景光照层，逐通道除法归一化（背景→纯白）
+ * 2) 自适应局部对比度：CLAHE 作用在亮度通道（clipLimit 随强度提升）
+ * 3) 白点拉伸：把背景灰度映射到 255，黑色文字保持纯黑
+ * 4) 非锐化掩模：文字边缘锐化
+ * 5) 最终与光照归一化底图按 k 混合（k=0 仅干净底图，k=1 全部增强）
+ */
+function magicSmartEnhance(cv: any, rgba: any, k: number): any {
+  const pool = createMatPool();
+  try {
+    // ---- 1) 背景光照层估计与除法归一化 ----
+    const base = pool.add(illuminationNormalize(cv, rgba)); // BGR
     const baseRgba = pool.add(new cv.Mat());
     cv.cvtColor(base, baseRgba, cv.COLOR_BGR2RGBA);
 
@@ -378,6 +484,11 @@ export function enhanceMat(cv: any, rgba: any, f: FilterState): any {
       // 智能增强：光照归一化 + CLAHE 局部对比度 + 白点拉伸 + 锐化，强度 k 控制
       const k = Math.min(1, Math.max(0, (Number(f.strength) || 0) / 100));
       const enhanced = magicSmartEnhance(cv, work, k);
+      work.delete();
+      work = pool.add(enhanced);
+    } else if (f.mode === 'color') {
+      // 彩色文档：去阴影/泛黄 + 自动白平衡 + 提饱和 + 轻锐化（保留彩色）
+      const enhanced = colorEnhance(cv, work);
       work.delete();
       work = pool.add(enhanced);
     } else if (f.mode === 'gray') {

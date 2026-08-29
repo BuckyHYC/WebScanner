@@ -41,7 +41,7 @@ interface Store {
   setCurrent: (i: number) => void;
   updatePage: (id: string, patch: Partial<Page>, history?: boolean) => void;
   updateFilter: (id: string, patch: Partial<FilterState>, history?: boolean) => void;
-  applyFilterToAll: (mode: FilterState['mode']) => void;
+  applyFilterToAll: () => void;
   autoEnhanceAll: () => void;
   autoCropAll: () => void;
   resetCorners: (id: string) => void;
@@ -143,15 +143,20 @@ export const useStore = create<Store>((set, get) => ({
     }));
   },
 
-  applyFilterToAll: (mode) => {
+  /** 把当前页的完整滤镜状态（含自定义滑块值）同步到所有页面 */
+  applyFilterToAll: () => {
     get().pushHistory();
-    set((s) => ({
-      pages: s.pages.map((p) => ({
-        ...p,
-        filter: { ...defaultFilter(mode), block: p.filter.block, cValue: p.filter.cValue },
-        filterName: filterLabel(mode),
-      })),
-    }));
+    set((s) => {
+      const cur = s.pages[s.current];
+      if (!cur) return {};
+      return {
+        pages: s.pages.map((p) => ({
+          ...p,
+          filter: { ...cur.filter },
+          filterName: cur.filterName,
+        })),
+      };
+    });
   },
 
   autoEnhanceAll: () => {

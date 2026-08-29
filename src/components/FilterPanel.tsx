@@ -140,11 +140,11 @@ export default function FilterPanel({ page, className = '', onDone }: Props) {
         <button
           className="btn-panel text-xs"
           onClick={() => {
-            useStore.getState().applyFilterToAll(f.mode);
-            useStore.getState().toast(`已对全部页面应用「${filterLabel(f.mode)}」`, 'success');
+            useStore.getState().applyFilterToAll();
+            useStore.getState().toast('已将当前页滤镜设置同步到全部页面', 'success');
           }}
         >
-          📚 应用当前模式到全部页
+          📚 应用当前设置到所有页面
         </button>
       </div>
     </div>
