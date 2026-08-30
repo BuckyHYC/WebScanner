@@ -126,7 +126,10 @@ export default function Home({ draftRestored, onDraftSeen }: Props) {
         {pages.length > 0 && (
           <button
             className="btn-ghost px-6 py-3.5 text-base rounded-xl focus-visible:ring-2 focus-visible:ring-accent focus-visible:ring-offset-2 focus-visible:ring-offset-ink-950"
-            onClick={() => useStore.getState().setView('editor')}
+            onClick={() => {
+              useStore.getState().setView('editor');
+              onDraftSeen();
+            }}
           >
             <IconEdit className="w-[18px] h-[18px]" />
             继续编辑（{pages.length} 页）

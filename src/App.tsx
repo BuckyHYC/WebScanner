@@ -27,7 +27,9 @@ export default function App() {
     (async () => {
       const draft = await loadDraft();
       if (draft && draft.length > 0) {
-        useStore.setState({ pages: draft, view: 'editor' });
+        // 恢复草稿后默认停在首页（用户点「继续编辑」再进编辑器），
+        // 首页会显示草稿提示条与「继续编辑（N 页）」入口
+        useStore.setState({ pages: draft, view: 'home' });
         setDraftRestored(true);
       }
     })();

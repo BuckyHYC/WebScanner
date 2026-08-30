@@ -29,6 +29,11 @@ export default function ExportDialog({ onClose }: Props) {
   });
   const [jpgScope, setJpgScope] = useState<'current' | 'all'>('all');
   const [jpgDelivery, setJpgDelivery] = useState<'zip' | 'direct'>('zip');
+  // 记住图片子格式：PDF ↔ 图片来回切换时保留上次选择的 JPG/PNG
+  const [lastImgFmt, setLastImgFmt] = useState<'jpg' | 'png'>(() => {
+    const ps = useStore.getState().pages;
+    return ps.length > 0 && ps.every((p) => p.filter.mode === 'bw') ? 'png' : 'jpg';
+  });
   const [previewOpen, setPreviewOpen] = useState(false);
   const [running, setRunning] = useState(false);
 
@@ -102,31 +107,52 @@ export default function ExportDialog({ onClose }: Props) {
           </button>
         </div>
 
-        {/* 格式 */}
-        <div className="grid grid-cols-3 gap-2">
-          {(
-            [
-              ['pdf', 'PDF 文档'],
-              ['jpg', 'JPG 图片'],
-              ['png', 'PNG 无损'],
-            ] as const
-          ).map(([k, label]) => (
-            <button
-              key={k}
-              className={`rounded-lg py-2.5 text-sm border flex items-center justify-center gap-1.5 transition-colors ${
-                opts.format === k
-                  ? 'border-accent bg-accent/15 text-accent'
-                  : 'border-ink-600 bg-ink-800 text-slate-300 hover:border-ink-700 hover:bg-ink-700'
-              }`}
-              onClick={() => set('format', k)}
-            >
-              {k === 'pdf' ? <IconDoc className="w-4 h-4" /> : <IconImage className="w-4 h-4" />}
-              {label}
-            </button>
-          ))}
+        {/* 格式：一级（PDF / 图片） */}
+        <div className="grid grid-cols-2 gap-2">
+          <button
+            className={`rounded-lg py-2.5 text-sm border flex items-center justify-center gap-2 transition-colors ${
+              opts.format === 'pdf'
+                ? 'border-accent bg-accent/15 text-accent'
+                : 'border-ink-600 bg-ink-800 text-slate-300 hover:border-ink-700 hover:bg-ink-700'
+            }`}
+            onClick={() => set('format', 'pdf')}
+          >
+            <IconDoc className="w-4 h-4" /> PDF 文档
+          </button>
+          <button
+            className={`rounded-lg py-2.5 text-sm border flex items-center justify-center gap-2 transition-colors ${
+              opts.format !== 'pdf'
+                ? 'border-accent bg-accent/15 text-accent'
+                : 'border-ink-600 bg-ink-800 text-slate-300 hover:border-ink-700 hover:bg-ink-700'
+            }`}
+            onClick={() => {
+              // 从 PDF 切到图片时恢复上次选择的图片格式
+              if (opts.format === 'pdf') set('format', lastImgFmt);
+            }}
+          >
+            <IconImage className="w-4 h-4" /> 导出为图片
+          </button>
         </div>
-        {opts.format === 'png' && (
-          <p className="text-[11px] text-slate-500 -mt-2">PNG 无损导出，黑白文档文字更锐利、无压缩伪影</p>
+
+        {/* 图片格式：二级（JPG / PNG），仅图片模式显示 */}
+        {opts.format !== 'pdf' && (
+          <Field label="图片格式">
+            <Segmented
+              value={opts.format}
+              onChange={(v) => {
+                const fmt = v as 'jpg' | 'png';
+                set('format', fmt);
+                setLastImgFmt(fmt);
+              }}
+              options={[
+                ['jpg', 'JPG 有损（体积小）'],
+                ['png', 'PNG 无损（黑白更佳）'],
+              ]}
+            />
+            {opts.format === 'png' && (
+              <p className="text-[11px] text-slate-500">黑白文档选 PNG：文字更锐利、无压缩伪影</p>
+            )}
+          </Field>
         )}
 
         {/* 图片多页打包方式 */}
