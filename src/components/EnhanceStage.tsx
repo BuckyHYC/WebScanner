@@ -5,13 +5,14 @@ import { applyFilterToCanvas, renderGeometry } from '../utils/render';
 
 interface Props {
   page: Page;
+  onNext?: () => void;
 }
 
 /**
  * 增强阶段：几何结果缓存 + 滤镜实时应用（滑块调节只跑滤镜，不重跑透视）。
  * 内置"任意多边形裁剪"（套索）模式，用于书籍曲页/缺角文档。
  */
-export default function EnhanceStage({ page }: Props) {
+export default function EnhanceStage({ page, onNext }: Props) {
   const containerRef = useRef<HTMLDivElement>(null);
   const displayRef = useRef<HTMLCanvasElement>(null);
   const baseRef = useRef<{ key: string; canvas: HTMLCanvasElement } | null>(null);
@@ -135,6 +136,11 @@ export default function EnhanceStage({ page }: Props) {
         <span className="text-[11px] text-slate-500 hidden sm:inline">
           {page.polygon ? '已启用多边形裁剪' : '套索可去除书籍曲页/缺角'}
         </span>
+        {onNext && (
+          <button className="btn-primary shrink-0 text-xs" onClick={onNext}>
+            下一步 →
+          </button>
+        )}
       </div>
 
       {/* 画布区 */}

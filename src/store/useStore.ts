@@ -107,6 +107,7 @@ export const useStore = create<Store>((set, get) => ({
         filter: { ...src.filter },
         corners: src.corners.map((c) => ({ ...c })),
         polygon: src.polygon ? src.polygon.map((c) => ({ ...c })) : null,
+        eraseMask: src.eraseMask ?? null,
       };
       const pages = [...s.pages];
       pages.splice(index + 1, 0, copy);

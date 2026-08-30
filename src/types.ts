@@ -47,6 +47,8 @@ export interface Page {
   fineRotate: number;
   filter: FilterState;
   filterName: string;
+  /** 涂抹擦除蒙版（归一化 PNG dataURL，白色=擦除区；null=无）。作用于滤镜处理后的图像 */
+  eraseMask?: string | null;
 }
 
 export interface Toast {

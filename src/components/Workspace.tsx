@@ -4,6 +4,7 @@ import { useShortcuts } from '../hooks/useShortcuts';
 import ThumbList from './ThumbList';
 import CropStage from './CropStage';
 import EnhanceStage from './EnhanceStage';
+import EraseStage from './EraseStage';
 import FilterPanel from './FilterPanel';
 import ExportDialog from './ExportDialog';
 import { importFiles } from '../utils/importer';
@@ -32,7 +33,7 @@ async function runAutoCropAll() {
 export default function Workspace() {
   const pages = useStore((s) => s.pages);
   const current = useStore((s) => s.current);
-  const [tab, setTab] = useState<'crop' | 'enhance'>('crop');
+  const [tab, setTab] = useState<'crop' | 'enhance' | 'erase'>('crop');
   const [exportOpen, setExportOpen] = useState(false);
   const [mobilePanel, setMobilePanel] = useState(false);
   const [insertFileRef] = useState<{ current: ((f: File[]) => void) | null }>(() => ({ current: null }));
@@ -104,6 +105,7 @@ export default function Workspace() {
               [
                 ['crop', '① 裁剪矫正'],
                 ['enhance', '② 增强滤镜'],
+                ['erase', '③ 去污'],
               ] as const
             ).map(([k, label]) => (
               <button
@@ -123,7 +125,7 @@ export default function Workspace() {
           </div>
 
           <div className="flex-1 min-h-0 relative bg-ink-950">
-            {tab === 'crop' ? <CropStage page={page} onNext={() => setTab('enhance')} /> : <EnhanceStage page={page} />}
+            {tab === 'crop' ? <CropStage page={page} onNext={() => setTab('enhance')} /> : tab === 'enhance' ? <EnhanceStage page={page} onNext={() => setTab('erase')} /> : <EraseStage page={page} />}
           </div>
         </main>
 

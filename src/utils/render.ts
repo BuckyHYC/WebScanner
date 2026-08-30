@@ -3,6 +3,7 @@ import { loadOpenCV } from './opencvLoader';
 import { detectQuadInCanvas } from './detect';
 import { targetSizeFromQuad, quadToPixels } from './geometry';
 import { enhanceMat, isFilterActive } from './enhance';
+import { applyEraseMask } from './erase';
 
 /** 旋转后画布尺寸 */
 export function rotatedDims(w: number, h: number, rotation: number): { w: number; h: number } {
@@ -140,12 +141,31 @@ export async function applyFilterToCanvas(srcCanvas: HTMLCanvasElement, f: Filte
   }
 }
 
-/** 完整渲染一页：几何 + 滤镜 */
+/** 完整渲染一页：几何 + 滤镜 + 涂抹擦除 */
 export async function renderFinal(page: Page, maxEdge: number, reuseCanvas?: HTMLCanvasElement): Promise<HTMLCanvasElement> {
+  const cv = await loadOpenCV();
   const geo = await renderGeometry(page, maxEdge);
   try {
-    if (!isFilterActive(page.filter)) return geo;
-    const out = await applyFilterToCanvas(geo, page.filter);
+    let out: HTMLCanvasElement;
+    if (!isFilterActive(page.filter)) out = geo;
+    else out = await applyFilterToCanvas(geo, page.filter);
+    if (geo !== out) {
+      geo.width = 0;
+      geo.height = 0;
+    }
+    // 涂抹擦除（若有蒙版）：Telea 修复
+    if (page.eraseMask) {
+      const erased = await applyEraseMask(cv, out, page.eraseMask);
+      if (erased !== out) {
+        if (reuseCanvas) {
+          reuseCanvas.width = erased.width;
+          reuseCanvas.height = erased.height;
+          reuseCanvas.getContext('2d')!.drawImage(erased, 0, 0);
+          return reuseCanvas;
+        }
+        return erased;
+      }
+    }
     // 把结果画进复用画布
     if (reuseCanvas) {
       reuseCanvas.width = out.width;
@@ -155,8 +175,7 @@ export async function renderFinal(page: Page, maxEdge: number, reuseCanvas?: HTM
     }
     return out;
   } finally {
-    geo.width = 0;
-    geo.height = 0;
+    // geo 已在上面按需置 0
   }
 }
 
