@@ -174,11 +174,30 @@ export default function EraseStage({ page }: Props) {
   const sizeRef = useRef(brushSize);
   sizeRef.current = brushSize;
 
+  /**
+   * overlay 位图在 CSS 盒内按 object-contain 实际显示的区域。
+   * display canvas 是 object-contain：位图与 CSS 盒宽高比不一致时存在 letterbox 留白，
+   * 直接用 rect 做简单比例映射会错位（如宽扁图在瘦高容器中上下留白 → 涂抹整体向下偏移）。
+   */
+  const overlayContain = () => {
+    const overlay = overlayRef.current!;
+    const rect = overlay.getBoundingClientRect();
+    if (overlay.width <= 0 || overlay.height <= 0 || rect.width <= 0 || rect.height <= 0) {
+      return { rect, dispW: 1, dispH: 1, offX: 0, offY: 0 };
+    }
+    const scale = Math.min(rect.width / overlay.width, rect.height / overlay.height);
+    const dispW = overlay.width * scale;
+    const dispH = overlay.height * scale;
+    return { rect, dispW, dispH, offX: (rect.width - dispW) / 2, offY: (rect.height - dispH) / 2 };
+  };
+
+  /** client 坐标 → 位图坐标（扣除 object-contain letterbox 偏移） */
   const toCanvasPos = (clientX: number, clientY: number) => {
-    const rect = overlayRef.current!.getBoundingClientRect();
+    const overlay = overlayRef.current!;
+    const { rect, dispW, dispH, offX, offY } = overlayContain();
     return {
-      x: ((clientX - rect.left) / rect.width) * overlayRef.current!.width,
-      y: ((clientY - rect.top) / rect.height) * overlayRef.current!.height,
+      x: ((clientX - rect.left - offX) / dispW) * overlay.width,
+      y: ((clientY - rect.top - offY) / dispH) * overlay.height,
     };
   };
 
@@ -189,7 +208,9 @@ export default function EraseStage({ page }: Props) {
     const pos = toCanvasPos(clientX, clientY);
     lastPt.current = pos;
     const ctx = overlay.getContext('2d')!;
-    const ratio = overlay.width / (overlay.getBoundingClientRect().width || 1);
+    // 笔径换算：显示像素 → 位图像素（按 contain 实际显示宽度，而非 CSS 盒宽度）
+    const { dispW } = overlayContain();
+    const ratio = overlay.width / dispW;
     paintStroke(ctx, pos, pos, sizeRef.current * ratio, 'rgba(255,64,96,0.5)', toolRef.current === 'eraser');
   }, [busy]);
 
@@ -199,7 +220,8 @@ export default function EraseStage({ page }: Props) {
     if (!overlay) return;
     const pos = toCanvasPos(clientX, clientY);
     const ctx = overlay.getContext('2d')!;
-    const ratio = overlay.width / (overlay.getBoundingClientRect().width || 1);
+    const { dispW } = overlayContain();
+    const ratio = overlay.width / dispW;
     paintStroke(ctx, lastPt.current ?? pos, pos, sizeRef.current * ratio, 'rgba(255,64,96,0.5)', toolRef.current === 'eraser');
     lastPt.current = pos;
   }, []);

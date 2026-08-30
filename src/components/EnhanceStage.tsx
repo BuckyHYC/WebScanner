@@ -107,13 +107,20 @@ export default function EnhanceStage({ page, onNext }: Props) {
 
   const setPoly = (p: Point[] | null) => useStore.getState().updatePage(page.id, { polygon: p }, true);
 
-  /** 套索点击加点（相对显示画布归一化） */
+  /** 套索点击加点（相对位图归一化；扣除 object-contain letterbox 偏移，避免选点错位） */
   const addPoint = (e: React.MouseEvent) => {
     if (!lasso) return;
-    const rect = displayRef.current!.getBoundingClientRect();
+    const c = displayRef.current!;
+    const rect = c.getBoundingClientRect();
+    if (c.width <= 0 || c.height <= 0 || rect.width <= 0 || rect.height <= 0) return;
+    const scale = Math.min(rect.width / c.width, rect.height / c.height);
+    const dispW = c.width * scale;
+    const dispH = c.height * scale;
+    const offX = (rect.width - dispW) / 2;
+    const offY = (rect.height - dispH) / 2;
     setPts((p) => [
       ...p,
-      { x: (e.clientX - rect.left) / rect.width, y: (e.clientY - rect.top) / rect.height },
+      { x: (e.clientX - rect.left - offX) / dispW, y: (e.clientY - rect.top - offY) / dispH },
     ]);
   };
 
