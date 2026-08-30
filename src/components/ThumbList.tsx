@@ -64,6 +64,9 @@ export default function ThumbList({ direction, className = '' }: Props) {
   const longPressTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
   const rafRef = useRef<number>(0);
   const settleTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+  // pointercancel（touch）后 touch 事件流可能中断的兜底：350ms 内若无
+  // touchmove/touchend 续命，就用最后坐标完成排序，避免浮层卡死
+  const touchFallbackTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
   const reducedMotion = typeof window !== 'undefined' && window.matchMedia('(prefers-reduced-motion: reduce)').matches;
 
   if (pages.length === 0) return null;
@@ -139,7 +142,8 @@ export default function ThumbList({ direction, className = '' }: Props) {
     ptr.cy = cy;
     ptr.clientX = clientX;
     ptr.clientY = clientY;
-    if (!dragRef.current) {
+    const cur = dragRef.current;
+    if (!cur) {
       // 长按期间位移过大 → 视为滚动/取消长按
       if (Math.hypot(cx - ptr.startCx, cy - ptr.startCy) > MOVE_THRESHOLD) {
         ptr.moved = true;
@@ -147,14 +151,21 @@ export default function ThumbList({ direction, className = '' }: Props) {
       }
       return;
     }
+    if (cur.settling) return; // 吸附动画中不再移动浮层
+    // touch 流还活着（touchmove 到达）→ 续命兜底定时器，等 touchend 正常定案
+    if (touchFallbackTimer.current) {
+      clearTimeout(touchFallbackTimer.current);
+      touchFallbackTimer.current = null;
+    }
     const drop = calcDrop(cx, pages.length, ptr.from);
-    const cur = dragRef.current;
-    if (cur) setDragBoth({ ...cur, left: ptr.baseLeft + (cx - ptr.startCx), top: ptr.baseTop + (cy - ptr.startCy), drop });
+    setDragBoth({ ...cur, left: ptr.baseLeft + (cx - ptr.startCx), top: ptr.baseTop + (cy - ptr.startCy), drop });
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [pages.length]);
 
-  /** 结束：短按选中 / 拖拽吸附排序（mouse 与 touch 共用） */
-  const finishDrag = useCallback(() => {
+  /** 结束拖拽：短按选中 / 排序。
+   * - mouse（PC）：保留 280ms 吸附动画后排序（原行为，不变）
+   * - touch（移动端）：松手立即到位，无动画（用户要求） */
+  const finishDrag = useCallback((immediate = false) => {
     clearLongPress();
     const ptr = pointerRef.current;
     if (!ptr) return;
@@ -173,6 +184,13 @@ export default function ThumbList({ direction, className = '' }: Props) {
       setDragBoth(null);
       return;
     }
+    if (immediate) {
+      // 移动端：直接排序，浮层立即消失
+      setDragBoth(null);
+      useStore.getState().movePage(from, drop);
+      return;
+    }
+    // PC：吸附动画后排序
     setDragBoth(d ? { ...d, settling: true, left: dropEl?.offsetLeft ?? d.left, top: dropEl?.offsetTop ?? d.top } : d);
     settleTimer.current = setTimeout(() => {
       settleTimer.current = null;
@@ -230,11 +248,21 @@ export default function ThumbList({ direction, className = '' }: Props) {
       if (!ptr) return;
       const t = e.touches[0];
       if (!t) return;
+      if (touchFallbackTimer.current) {
+        clearTimeout(touchFallbackTimer.current);
+        touchFallbackTimer.current = null;
+      }
       if (e.cancelable) e.preventDefault(); // 尽力阻止浏览器滚动
       const rect = rectOf();
       updatePointer(t.clientX - rect.left + el.scrollLeft, t.clientY - rect.top, t.clientX, t.clientY);
     };
-    const onTouchEnd = () => finishDrag();
+    const onTouchEnd = () => {
+      if (touchFallbackTimer.current) {
+        clearTimeout(touchFallbackTimer.current);
+        touchFallbackTimer.current = null;
+      }
+      finishDrag(true);
+    };
     el.addEventListener('touchstart', onTouchStart, { passive: true });
     el.addEventListener('touchmove', onTouchMove, { passive: false });
     el.addEventListener('touchend', onTouchEnd);
@@ -248,11 +276,64 @@ export default function ThumbList({ direction, className = '' }: Props) {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [pages.length, direction]);
 
+  // 拖拽激活期间：document 级捕获监听，确保松手事件不因目标变化/冒泡中断而丢失。
+  // - touchend/touchcancel：正常松手 → 完成排序
+  // - pointerup（touch）：事件流未断时也会到达 → 完成排序
+  // - pointercancel（touch）：浏览器抢手势，touch 流可能继续（等 touchend）
+  //   也可能中断 → 启动兜底定时器，150ms 无续命则用最后坐标定案
+  useEffect(() => {
+    if (!drag || drag.settling) return;
+    const startFallback = () => {
+      if (touchFallbackTimer.current) clearTimeout(touchFallbackTimer.current);
+      touchFallbackTimer.current = setTimeout(() => {
+        touchFallbackTimer.current = null;
+        finishDrag(true);
+      }, 150);
+    };
+    const onTouchEnd = () => {
+      if (touchFallbackTimer.current) {
+        clearTimeout(touchFallbackTimer.current);
+        touchFallbackTimer.current = null;
+      }
+      finishDrag(true);
+    };
+    const onPointerUp = (e: PointerEvent) => {
+      if (e.pointerType === 'mouse') return; // mouse 由组件内 React endDrag 处理
+      onTouchEnd();
+    };
+    const onPointerCancel = (e: PointerEvent) => {
+      if (e.pointerType === 'mouse') {
+        cancelDrag();
+        return;
+      }
+      startFallback();
+    };
+    document.addEventListener('touchend', onTouchEnd, true);
+    document.addEventListener('touchcancel', onTouchEnd, true);
+    document.addEventListener('pointerup', onPointerUp, true);
+    document.addEventListener('pointercancel', onPointerCancel, true);
+    return () => {
+      document.removeEventListener('touchend', onTouchEnd, true);
+      document.removeEventListener('touchcancel', onTouchEnd, true);
+      document.removeEventListener('pointerup', onPointerUp, true);
+      document.removeEventListener('pointercancel', onPointerCancel, true);
+      if (touchFallbackTimer.current) {
+        clearTimeout(touchFallbackTimer.current);
+        touchFallbackTimer.current = null;
+      }
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [drag, reducedMotion]);
+
   const cancelDrag = () => {
     clearLongPress();
     if (settleTimer.current) {
       clearTimeout(settleTimer.current);
       settleTimer.current = null;
+    }
+    if (touchFallbackTimer.current) {
+      clearTimeout(touchFallbackTimer.current);
+      touchFallbackTimer.current = null;
     }
     pointerRef.current = null;
     setDragBoth(null);
@@ -315,6 +396,7 @@ export default function ThumbList({ direction, className = '' }: Props) {
     () => () => {
       clearLongPress();
       if (settleTimer.current) clearTimeout(settleTimer.current);
+      if (touchFallbackTimer.current) clearTimeout(touchFallbackTimer.current);
       cancelAnimationFrame(rafRef.current);
     },
     [],
@@ -329,7 +411,9 @@ export default function ThumbList({ direction, className = '' }: Props) {
       ref={(el) => {
         itemRefs.current[i] = el;
       }}
-      className={`relative shrink-0 ${direction === 'vertical' ? 'w-full px-2 py-1' : 'w-20'} ${
+      className={`relative shrink-0 select-none [-webkit-touch-callout:none] ${
+        direction === 'vertical' ? 'w-full px-2 py-1' : 'w-20'
+      } ${
         i === current && !drag ? 'ring-2 ring-accent rounded-lg shadow-lg shadow-black/30' : ''
       }`}
       draggable={direction === 'vertical'}
@@ -361,6 +445,7 @@ export default function ThumbList({ direction, className = '' }: Props) {
         <img
           src={p.thumb}
           alt={p.name}
+          draggable={false}
           className={`rounded-md border border-ink-600 object-cover bg-white/5 transition-colors group-hover:border-ink-700 ${
             direction === 'vertical' ? 'w-full h-28' : 'w-20 h-28'
           }`}
@@ -463,10 +548,11 @@ export default function ThumbList({ direction, className = '' }: Props) {
       onPointerCancel={
         direction === 'horizontal'
           ? (e) => {
-              // touch 的 pointercancel 是浏览器抢占滚动手势（touch-pan-x），
-              // 此时用最后坐标直接完成排序；mouse 的 cancel 才是真取消
+              // touch 的 pointercancel 是浏览器抢占滚动手势：touch 事件流可能
+              // 继续（等 touchend 完成排序），也可能中断（由 document 监听里的
+              // 兜底定时器定案）。这里不直接排序，避免移动中途提前定案。
+              // mouse 的 cancel 才是真取消。
               if (e.pointerType === 'mouse') cancelDrag();
-              else finishDrag();
             }
           : undefined
       }
