@@ -16,10 +16,27 @@ interface Props {
 export default function EnhanceStage({ page, onNext }: Props) {
   const containerRef = useRef<HTMLDivElement>(null);
   const displayRef = useRef<HTMLCanvasElement>(null);
+  const stageRef = useRef<HTMLDivElement>(null);
   const baseRef = useRef<{ key: string; canvas: HTMLCanvasElement } | null>(null);
   const [busy, setBusy] = useState(false);
   const [lasso, setLasso] = useState(false);
   const [pts, setPts] = useState<Point[]>([]);
+  // 套索选点半径（屏幕像素 5px → viewBox 0-1 单位）
+  const [dotR, setDotR] = useState(0.006);
+
+  // 测量舞台容器实际像素宽，把选点半径换算到 viewBox 单位
+  useEffect(() => {
+    const el = stageRef.current;
+    if (!el) return;
+    const update = () => {
+      const w = el.getBoundingClientRect().width;
+      if (w > 0) setDotR(5 / w);
+    };
+    update();
+    const ro = new ResizeObserver(update);
+    ro.observe(el);
+    return () => ro.disconnect();
+  }, [lasso]);
 
   const geoKey = JSON.stringify([page.corners, page.rotation, page.flipH, page.flipV, page.fineRotate, page.polygon]);
 
@@ -100,8 +117,6 @@ export default function EnhanceStage({ page, onNext }: Props) {
     ]);
   };
 
-  const dpr = typeof window !== 'undefined' ? window.devicePixelRatio || 1 : 1;
-
   return (
     <div className="h-full flex flex-col min-h-0">
       {/* 工具行（md+ 自动换行，手机横向滚动） */}
@@ -147,7 +162,7 @@ export default function EnhanceStage({ page, onNext }: Props) {
 
       {/* 画布区 */}
       <div ref={containerRef} className="flex-1 min-h-0 relative overflow-hidden flex items-center justify-center p-2 bg-ink-950">
-        <div className="relative" style={{ maxHeight: '100%', maxWidth: '100%' }}>
+        <div ref={stageRef} className="relative" style={{ maxHeight: '100%', maxWidth: '100%' }}>
           <canvas
             ref={displayRef}
             onClick={addPoint}
@@ -166,7 +181,7 @@ export default function EnhanceStage({ page, onNext }: Props) {
                   points={page.polygon.map((p) => `${p.x},${p.y}`).join(' ')}
                   fill="none"
                   stroke="#f59e0b"
-                  strokeWidth={1.5 / dpr}
+                  strokeWidth={1.5}
                   vectorEffect="non-scaling-stroke"
                   strokeDasharray="6 4"
                 />
@@ -181,7 +196,16 @@ export default function EnhanceStage({ page, onNext }: Props) {
                     vectorEffect="non-scaling-stroke"
                   />
                   {pts.map((p, i) => (
-                    <circle key={i} cx={p.x} cy={p.y} r={3 / dpr} fill="#fff" stroke="#2f81f7" strokeWidth={1} vectorEffect="non-scaling-stroke" />
+                    <circle
+                      key={i}
+                      cx={p.x}
+                      cy={p.y}
+                      r={dotR}
+                      fill="#fff"
+                      stroke="#2f81f7"
+                      strokeWidth={1.5}
+                      vectorEffect="non-scaling-stroke"
+                    />
                   ))}
                 </>
               )}
