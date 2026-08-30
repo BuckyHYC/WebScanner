@@ -37,35 +37,45 @@ export default function ExportDialog({ onClose }: Props) {
   const run = async () => {
     if (targets.length === 0) return;
     const s = useStore.getState();
+    const controller = new AbortController();
+    s.setExportCancel(() => controller.abort());
     setRunning(true);
     s.setExporting({ active: true, done: 0, total: targets.length, label: '正在导出…' });
     try {
       if (opts.format === 'pdf') {
         const blob = await exportPdf(targets, opts, (done, total) =>
           s.setExporting({ active: true, done, total, label: '正在生成 PDF…' }),
+          controller.signal,
         );
         downloadBlob(blob, `${opts.prefix || 'scan'}.pdf`);
       } else if (targets.length === 1) {
-        await exportSingleJpg(targets[0], opts, pages.indexOf(targets[0]));
+        await exportSingleJpg(targets[0], opts, pages.indexOf(targets[0]), controller.signal);
       } else if (jpgDelivery === 'direct') {
         // 逐张直接导出：每张单独下载，移动端可直接存入相册
         const indices = targets.map((t) => pages.indexOf(t));
         await exportJpgDirectly(targets, opts, indices, (done, total) =>
           s.setExporting({ active: true, done, total, label: '正在逐张导出…' }),
+          controller.signal,
         );
         s.toast(`已逐张导出 ${targets.length} 张，请在下载/相册中查看`, 'success');
       } else {
         const blob = await exportJpgZip(targets, opts, (done, total) =>
           s.setExporting({ active: true, done, total, label: '正在打包 ZIP…' }),
+          controller.signal,
         );
         downloadBlob(blob, `${opts.prefix || 'scan'}.zip`);
       }
       s.toast('导出完成，已开始下载', 'success');
       onClose();
     } catch (e) {
-      console.error(e);
-      s.toast('导出失败，请重试', 'error');
+      if ((e as DOMException)?.name === 'AbortError') {
+        s.toast('已取消导出');
+      } else {
+        console.error(e);
+        s.toast('导出失败，请重试', 'error');
+      }
     } finally {
+      s.setExportCancel(null);
       s.setExporting(null);
       setRunning(false);
     }
@@ -266,41 +276,45 @@ function Segmented({ value, onChange, options }: { value: string; onChange: (v: 
 /** 导出前全屏逐页预览（展示最终渲染效果） */
 function PreviewModal({ pages, onClose }: { pages: Page[]; onClose: () => void }) {
   const [idx, setIdx] = useState(0);
-  const [canvases, setCanvases] = useState<(HTMLCanvasElement | null)[]>([]);
+  const [canvas, setCanvas] = useState<HTMLCanvasElement | null>(null);
+  const [loading, setLoading] = useState(true);
 
-  // 逐页渲染最终效果（异步、可取消）
+  // 只渲染当前页：翻页时释放上一页 canvas，避免同时持有全部页导致内存峰值
   useEffect(() => {
     let cancelled = false;
-    (async () => {
-      const results: (HTMLCanvasElement | null)[] = [];
-      for (const p of pages) {
-        try {
-          const c = await renderFinal(p, 1200);
-          results.push(c);
-        } catch {
-          results.push(null);
+    setCanvas(null);
+    setLoading(true);
+    renderFinal(pages[idx], 1200)
+      .then((c) => {
+        if (cancelled) {
+          c.width = 0;
+          c.height = 0;
+          return;
         }
-        if (cancelled) return;
-        setCanvases([...results]);
-      }
-    })();
+        setCanvas(c);
+      })
+      .catch(() => {
+        if (!cancelled) setCanvas(null);
+      })
+      .finally(() => {
+        if (!cancelled) setLoading(false);
+      });
     return () => {
       cancelled = true;
     };
-  }, [pages]);
+  }, [idx, pages]);
 
   const page = pages[idx];
-  const canvas = canvases[idx];
   const displayRef = useRef<HTMLCanvasElement>(null);
 
-  // 切换页码 / 渲染完成后把结果绘制到显示画布
+  // 渲染完成后把结果绘制到显示画布
   useEffect(() => {
     const el = displayRef.current;
     if (!el || !canvas) return;
     el.width = canvas.width;
     el.height = canvas.height;
     el.getContext('2d')!.drawImage(canvas, 0, 0);
-  }, [canvas, idx]);
+  }, [canvas]);
 
   return (
     <div className="fixed inset-0 z-[60] bg-black/95 flex flex-col">
@@ -325,7 +339,9 @@ function PreviewModal({ pages, onClose }: { pages: Page[]; onClose: () => void }
             ref={displayRef}
             className={`max-w-full max-h-full object-contain rounded shadow-2xl ${canvas ? '' : 'hidden'}`}
           />
-          {!canvas && <span className="text-slate-500 text-sm">{canvas === null ? '该页渲染失败' : '渲染中…'}</span>}
+          {!canvas && (
+            <span className="text-slate-500 text-sm">{loading ? '渲染中…' : '该页渲染失败'}</span>
+          )}
         </div>
         <button
           className="btn-ghost px-2 text-2xl shrink-0"

@@ -1,3 +1,4 @@
+/// <reference types="vitest/config" />
 import { defineConfig } from 'vite';
 import react from '@vitejs/plugin-react';
 
@@ -8,6 +9,10 @@ export default defineConfig({
   server: {
     host: true, // 允许局域网访问（手机测试 UI；摄像头需 https，见 README）
     port: 5173,
+  },
+  test: {
+    environment: 'node',
+    include: ['src/**/*.test.ts'],
   },
   build: {
     // heic2any 等大依赖动态分包

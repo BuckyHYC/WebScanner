@@ -1,13 +1,20 @@
 import type { Page } from '../types';
 import { useStore, defaultFilter, fullQuad } from '../store/useStore';
-import { makePageBase } from './imageIO';
+import { decodeImageFiles } from './imageIO';
+import type { DecodedImage } from './imageIO';
 import { autoDetectPage } from './render';
+import { uid } from './uid';
 
 /** 构造 Page 对象 */
-function toPage(base: Awaited<ReturnType<typeof makePageBase>>, id: string): Page {
+function toPage(base: DecodedImage, id: string, index: number): Page {
   return {
     id,
-    ...base,
+    name: `扫描_${String(index + 1).padStart(3, '0')}`,
+    blob: base.blob,
+    preview: base.preview,
+    thumb: base.thumb,
+    width: base.width,
+    height: base.height,
     corners: fullQuad(),
     polygon: null,
     rotation: 0,
@@ -32,10 +39,13 @@ export async function importFiles(files: File[], insertAt?: number) {
   const s = useStore.getState();
   const start = insertAt ?? s.pages.length;
   const newPages: Page[] = [];
+  let seq = start;
   for (let i = 0; i < imageFiles.length; i++) {
     try {
-      const base = await makePageBase(imageFiles[i], start + i);
-      newPages.push(toPage(base, crypto.randomUUID()));
+      const bases = await decodeImageFiles(imageFiles[i]);
+      for (const base of bases) {
+        newPages.push(toPage(base, uid(), seq++));
+      }
     } catch (e) {
       console.error(e);
       useStore.getState().toast(`${imageFiles[i].name} 解码失败`, 'error');

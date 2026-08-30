@@ -1,6 +1,7 @@
 /**
  * 图像导入：多格式解码（JPG/PNG/WebP/BMP/GIF 原生，HEIC 用 heic2any，TIFF 用 UTIF），
  * 并生成低清编辑预览与缩略图（导入时一次完成，交互全程使用低清保证流畅）。
+ * 多页 TIFF 拆分为多帧（多页扫描件常见，逐帧建页）。
  */
 
 function isHeic(file: File): boolean {
@@ -42,19 +43,41 @@ export interface DecodedImage {
   thumb: string;
 }
 
-/** 解码任意支持的图片文件为统一结构（HEIC/TIFF 已转为 JPEG Blob） */
-export async function decodeImageFile(file: File): Promise<DecodedImage> {
-  let blob: Blob = file;
+/** HEIC/HEIF → 单张 JPEG Blob（heic2any 动态加载，仅首次使用时下载） */
+async function heicToJpegBlob(file: File): Promise<Blob> {
+  const heic2any = (await import('heic2any')).default;
+  const out = await heic2any({ blob: file, toType: 'image/jpeg', quality: 0.95 });
+  return (Array.isArray(out) ? out[0] : out) as Blob;
+}
 
-  if (isHeic(file)) {
-    // HEIC/HEIF：动态加载解码器（约 1MB，仅首次使用时下载）
-    const heic2any = (await import('heic2any')).default;
-    const out = await heic2any({ blob: file, toType: 'image/jpeg', quality: 0.95 });
-    blob = Array.isArray(out) ? out[0] : out;
-  } else if (isTiff(file)) {
-    blob = await tiffToJpeg(file);
+/** UTIF 解码 TIFF → 逐帧 JPEG Blob（遍历全部 IFD，支持多页 TIFF） */
+async function tiffToJpegBlobs(file: File): Promise<Blob[]> {
+  const UTIF: any = await import('utif');
+  const buf = await file.arrayBuffer();
+  const ifds = UTIF.decode(buf);
+  if (!ifds || ifds.length === 0) return [];
+  const blobs: Blob[] = [];
+  for (const ifd of ifds) {
+    UTIF.decodeImage(buf, ifd, ifds);
+    const rgba = UTIF.toRGBA8(ifd);
+    const canvas = document.createElement('canvas');
+    canvas.width = ifd.width;
+    canvas.height = ifd.height;
+    const ctx = canvas.getContext('2d')!;
+    const imgData = ctx.createImageData(canvas.width, canvas.height);
+    imgData.data.set(rgba);
+    ctx.putImageData(imgData, 0, 0);
+    blobs.push(await canvasToBlob(canvas, 'image/jpeg', 0.95));
   }
+  return blobs;
+}
 
+/**
+ * blob → 统一 DecodedImage：解码 → 生成预览/缩略图；
+ * needsReencode=true 时把底图统一重编码为 JPEG（原生格式 strip EXIF/透明填白，
+ * 与 HEIC/TIFF 分支保持一致管线）。
+ */
+async function blobToDecoded(blob: Blob, needsReencode: boolean): Promise<DecodedImage> {
   let width = 0;
   let height = 0;
   let source: ImageBitmap | HTMLImageElement;
@@ -74,7 +97,6 @@ export async function decodeImageFile(file: File): Promise<DecodedImage> {
       height = img.naturalHeight;
       source = img;
     } finally {
-      // img 绘制完成后才能 revoke，延迟释放
       setTimeout(() => URL.revokeObjectURL(url), 1000);
     }
   }
@@ -85,43 +107,43 @@ export async function decodeImageFile(file: File): Promise<DecodedImage> {
   const thumb = canvasToDataURL(thumbCanvas, 0.8);
   (source as ImageBitmap).close?.();
 
-  // 统一存为 JPEG Blob（HEIC/TIFF 已转换；原生格式重新编码以统一管线）
-  if (blob === file && !isHeic(file) && !isTiff(file)) {
-    const bitmap = await createImageBitmap(file);
+  let finalBlob = blob;
+  if (needsReencode) {
+    const bitmap = await createImageBitmap(blob);
     const full = bitmapToCanvas(bitmap, 99999);
-    blob = await canvasToBlob(full, 'image/jpeg', 0.98);
+    finalBlob = await canvasToBlob(full, 'image/jpeg', 0.98);
     bitmap.close?.();
   }
 
-  return { blob, width, height, preview, thumb };
+  return { blob: finalBlob, width, height, preview, thumb };
 }
 
-/** UTIF 解码 TIFF → JPEG Blob */
-async function tiffToJpeg(file: File): Promise<Blob> {
-  const UTIF: any = await import('utif');
-  const buf = await file.arrayBuffer();
-  const ifds = UTIF.decode(buf);
-  UTIF.decodeImage(buf, ifds[0], ifds);
-  const rgba = UTIF.toRGBA8(ifds[0]);
-  const canvas = document.createElement('canvas');
-  canvas.width = ifds[0].width;
-  canvas.height = ifds[0].height;
-  const ctx = canvas.getContext('2d')!;
-  const imgData = ctx.createImageData(canvas.width, canvas.height);
-  imgData.data.set(rgba);
-  ctx.putImageData(imgData, 0, 0);
-  return canvasToBlob(canvas, 'image/jpeg', 0.95);
+/** 解码单个文件为单页结构（TIFF 仅取第一帧，供向后兼容与特殊场景） */
+export async function decodeImageFile(file: File): Promise<DecodedImage> {
+  let blob: Blob = file;
+  let needsReencode = true;
+  if (isHeic(file)) {
+    blob = await heicToJpegBlob(file);
+    needsReencode = false;
+  } else if (isTiff(file)) {
+    const blobs = await tiffToJpegBlobs(file);
+    blob = blobs[0] ?? file;
+    needsReencode = false;
+  }
+  return blobToDecoded(blob, needsReencode);
 }
 
-/** 根据导入文件生成 Page 对象的公共参数 */
-export async function makePageBase(file: File, index: number) {
-  const d = await decodeImageFile(file);
-  return {
-    name: `扫描_${String(index + 1).padStart(3, '0')}`,
-    blob: d.blob,
-    preview: d.preview,
-    thumb: d.thumb,
-    width: d.width,
-    height: d.height,
-  };
+/** 解码文件为（可能多帧的）页面结构：多页 TIFF 逐帧拆页，其余单帧 */
+export async function decodeImageFiles(file: File): Promise<DecodedImage[]> {
+  if (isTiff(file)) {
+    try {
+      const blobs = await tiffToJpegBlobs(file);
+      if (blobs.length > 0) {
+        return Promise.all(blobs.map((b) => blobToDecoded(b, false)));
+      }
+    } catch (e) {
+      console.warn('多页 TIFF 解码失败，回退单帧', e);
+    }
+  }
+  return [await decodeImageFile(file)];
 }

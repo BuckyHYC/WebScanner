@@ -12,6 +12,7 @@ export default function App() {
   const view = useStore((s) => s.view);
   const toasts = useStore((s) => s.toasts);
   const exporting = useStore((s) => s.exporting);
+  const exportCancel = useStore((s) => s.exportCancel);
   const cameraOpen = useStore((s) => s.cameraOpen);
   const dragDepth = useRef(0);
   const [dragging, setDragging] = useState(false);
@@ -32,12 +33,16 @@ export default function App() {
     })();
 
     let timer: ReturnType<typeof setTimeout> | undefined;
-    const unsub = useStore.subscribe((s) => {
-      clearTimeout(timer);
-      timer = setTimeout(() => {
-        saveDraft(s.pages).catch(() => {});
-      }, 1500);
-    });
+    // 仅订阅 pages 引用变化：toast/切页/导出状态等非 pages 变化不再触发草稿全量重写
+    const unsub = useStore.subscribe(
+      (s) => s.pages,
+      (pages) => {
+        clearTimeout(timer);
+        timer = setTimeout(() => {
+          saveDraft(pages).catch(() => {});
+        }, 1500);
+      },
+    );
 
     // 移动端杀后台/切后台前立即落盘最新草稿（防抖可能来不及触发）
     const flush = () => {
@@ -125,6 +130,11 @@ export default function App() {
           <div className="text-sm text-slate-400">
             {exporting.done} / {exporting.total}
           </div>
+          {exportCancel && (
+            <button className="btn-panel mt-1" onClick={exportCancel}>
+              取消导出
+            </button>
+          )}
         </div>
       )}
 

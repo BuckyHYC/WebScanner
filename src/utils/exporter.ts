@@ -3,6 +3,11 @@ import { PDFDocument } from 'pdf-lib';
 import type { ExportOptions, Page, Quality } from '../types';
 import { renderFinal } from './render';
 
+/** 取消导出：抛 AbortError，由调用方识别为「用户主动取消」 */
+function assertNotAborted(signal?: AbortSignal): void {
+  if (signal?.aborted) throw new DOMException('导出已取消', 'AbortError');
+}
+
 /** 质量档 → 渲染最大边长 */
 export function maxEdgeByQuality(q: Quality): number {
   return q === 'high' ? 6000 : q === 'mid' ? 2400 : 1600;
@@ -51,6 +56,7 @@ export async function exportPdf(
   pages: Page[],
   opts: ExportOptions,
   onProgress?: (done: number, total: number) => void,
+  signal?: AbortSignal,
 ): Promise<Blob> {
   const doc = await PDFDocument.create();
   if (opts.title) doc.setTitle(opts.title);
@@ -62,6 +68,7 @@ export async function exportPdf(
   const dpi = opts.quality === 'high' ? 300 : opts.quality === 'mid' ? 200 : 150;
 
   for (let i = 0; i < pages.length; i++) {
+    assertNotAborted(signal);
     const jpeg = await renderPageJpeg(pages[i], opts);
     const bytes = await jpeg.arrayBuffer();
     const img = await doc.embedJpg(bytes);
@@ -99,10 +106,12 @@ export async function exportJpgZip(
   pages: Page[],
   opts: ExportOptions,
   onProgress?: (done: number, total: number) => void,
+  signal?: AbortSignal,
 ): Promise<Blob> {
   const zip = new JSZip();
   const folder = zip.folder(opts.prefix || 'scan') ?? zip;
   for (let i = 0; i < pages.length; i++) {
+    assertNotAborted(signal);
     const jpeg = await renderPageJpeg(pages[i], opts);
     folder.file(pageFileName(opts.prefix, i), jpeg);
     onProgress?.(i + 1, pages.length);
@@ -111,7 +120,8 @@ export async function exportJpgZip(
 }
 
 /** 单张 JPG 导出 */
-export async function exportSingleJpg(page: Page, opts: ExportOptions, index: number): Promise<void> {
+export async function exportSingleJpg(page: Page, opts: ExportOptions, index: number, signal?: AbortSignal): Promise<void> {
+  assertNotAborted(signal);
   const jpeg = await renderPageJpeg(page, opts);
   downloadBlob(jpeg, pageFileName(opts.prefix, index));
 }
@@ -123,8 +133,10 @@ export async function exportJpgDirectly(
   opts: ExportOptions,
   indices: number[],
   onProgress?: (done: number, total: number) => void,
+  signal?: AbortSignal,
 ): Promise<void> {
   for (let i = 0; i < pages.length; i++) {
+    assertNotAborted(signal);
     const jpeg = await renderPageJpeg(pages[i], opts);
     downloadBlob(jpeg, pageFileName(opts.prefix, indices[i]));
     onProgress?.(i + 1, pages.length);

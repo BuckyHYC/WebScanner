@@ -44,50 +44,54 @@ export function applyLut(cv: any, src: any, lut: Uint8Array): any {
 }
 
 /**
- * 彩色去阴影：整图大核中值滤波估计光照背景（3 通道一次完成），
- * out = clip(src * 255 / bg) —— 各通道等比归一化，保留色相，仅去除光照不均。
+ * 彩色去阴影：复用 illuminationNormalize 的低分辨率形态学闭 + 高斯背景估计
+ * （逐通道除法归一化去光照不均、保留色相），替代原全分辨率 medianBlur 的 O(k²) 慢路径。
  * strength 为与原图混合比例 0~100。
  */
-function shadowRemoveColor(cv: any, rgba: any, strength: number, kSize: number): any {
-  const bgr = new cv.Mat();
-  const bg = new cv.Mat();
-  const norm = new cv.Mat();
+function shadowRemoveColor(cv: any, rgba: any, strength: number): any {
+  const base = illuminationNormalize(cv, rgba); // BGR，已去阴影
+  const baseRgba = new cv.Mat();
   const mixed = new cv.Mat();
-  const out = new cv.Mat();
   try {
-    cv.cvtColor(rgba, bgr, cv.COLOR_RGBA2BGR);
-    cv.medianBlur(bgr, bg, oddify(kSize, 21, 99));
-    // dst = src * 255 / bg：光照归一化（除法饱和到 8U）
-    cv.divide(bgr, bg, norm, 255, -1);
+    cv.cvtColor(base, baseRgba, cv.COLOR_BGR2RGBA);
     const a = strength / 100;
-    cv.addWeighted(norm, a, bgr, 1 - a, 0, mixed);
-    cv.cvtColor(mixed, out, cv.COLOR_BGR2RGBA);
-    return out.clone();
+    cv.addWeighted(baseRgba, a, rgba, 1 - a, 0, mixed);
+    return mixed.clone();
   } finally {
-    bgr.delete();
-    bg.delete();
-    norm.delete();
+    base.delete();
+    baseRgba.delete();
     mixed.delete();
-    out.delete();
   }
 }
 
-/** 灰度去阴影（bw 模式用）：norm = clip(gray/bg*255) */
-function shadowRemoveGray(cv: any, gray: any, strength: number, kSize: number): any {
-  const bg = new cv.Mat();
-  const norm = new cv.Mat();
+/**
+ * 灰度去阴影（bw 模式用）：低分辨率形态学闭 + 高斯估计背景光照层，
+ * norm = clip(gray/bg*255)，替代全分辨率 medianBlur 慢路径。
+ */
+function shadowRemoveGray(cv: any, gray: any, strength: number): any {
+  const pool = createMatPool();
   try {
-    cv.medianBlur(gray, bg, oddify(kSize, 21, 99));
+    const scale = Math.min(1, 384 / gray.cols);
+    const sw = Math.max(32, Math.round(gray.cols * scale));
+    const sh = Math.max(32, Math.round(gray.rows * scale));
+    const small = pool.add(new cv.Mat());
+    cv.resize(gray, small, new cv.Size(sw, sh), 0, 0, cv.INTER_AREA);
+    const kern = oddify(Math.round(Math.min(sw, sh) / 6), 15, 121);
+    const kernel = pool.add(cv.getStructuringElement(cv.MORPH_ELLIPSE, new cv.Size(kern, kern)));
+    const closed = pool.add(new cv.Mat());
+    cv.morphologyEx(small, closed, cv.MORPH_CLOSE, kernel);
+    const bgSmall = pool.add(new cv.Mat());
+    cv.GaussianBlur(closed, bgSmall, new cv.Size(0, 0), kern / 3, kern / 3, cv.BORDER_DEFAULT);
+    const bg = pool.add(new cv.Mat());
+    cv.resize(bgSmall, bg, new cv.Size(gray.cols, gray.rows), 0, 0, cv.INTER_LINEAR);
+    const norm = pool.add(new cv.Mat());
     cv.divide(gray, bg, norm, 255, -1);
     const a = strength / 100;
     const out = new cv.Mat();
     cv.addWeighted(norm, a, gray, 1 - a, 0, out);
-    bg.delete();
-    return out;
-  } catch (e) {
-    bg.delete();
-    norm.delete();
-    throw e;
+    return out.clone();
+  } finally {
+    pool.dispose();
   }
 }
 
@@ -417,14 +421,12 @@ export function enhanceMat(cv: any, rgba: any, f: FilterState): any {
   const pool = createMatPool();
   try {
     let work = pool.add(rgba.clone());
-    const minDim = Math.min(rgba.cols, rgba.rows);
-    const shadowK = Math.max(21, Math.round(minDim / 33));
 
     if (f.shadow > 0) {
       const fixed =
         f.mode === 'bw'
           ? undefined // bw 在灰度域处理
-          : shadowRemoveColor(cv, work, f.shadow, shadowK);
+          : shadowRemoveColor(cv, work, f.shadow);
       if (fixed) {
         work.delete();
         work = pool.add(fixed);
@@ -444,7 +446,7 @@ export function enhanceMat(cv: any, rgba: any, f: FilterState): any {
       work.delete();
       let g: any = gray;
       if (f.shadow > 0) {
-        const fixed = shadowRemoveGray(cv, g, f.shadow, shadowK);
+        const fixed = shadowRemoveGray(cv, g, f.shadow);
         g.delete();
         g = fixed;
       }

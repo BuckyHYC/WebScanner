@@ -1,5 +1,7 @@
 import { create } from 'zustand';
+import { subscribeWithSelector } from 'zustand/middleware';
 import type { FilterState, Page, Point, Toast } from '../types';
+import { uid } from '../utils/uid';
 
 /** 新建默认滤镜参数 */
 export function defaultFilter(mode: FilterState['mode'] = 'original'): FilterState {
@@ -29,6 +31,8 @@ interface Store {
   future: Snapshot[];
   toasts: Toast[];
   exporting: { active: boolean; done: number; total: number; label: string } | null;
+  /** 取消当前导出（为 null 表示无进行中的导出） */
+  exportCancel: (() => void) | null;
   cameraOpen: boolean;
 
   setView: (v: 'home' | 'editor') => void;
@@ -53,11 +57,12 @@ interface Store {
   toast: (text: string, tone?: Toast['tone']) => void;
   dropToast: (id: number) => void;
   setExporting: (e: Store['exporting']) => void;
+  setExportCancel: (fn: (() => void) | null) => void;
 }
 
 let toastSeq = 1;
 
-export const useStore = create<Store>((set, get) => ({
+export const useStore = create<Store>()(subscribeWithSelector((set, get) => ({
   view: 'home',
   pages: [],
   current: 0,
@@ -65,6 +70,7 @@ export const useStore = create<Store>((set, get) => ({
   future: [],
   toasts: [],
   exporting: null,
+  exportCancel: null,
   cameraOpen: false,
 
   setView: (v) => set({ view: v }),
@@ -102,7 +108,7 @@ export const useStore = create<Store>((set, get) => ({
       if (!src) return {};
       const copy: Page = {
         ...src,
-        id: crypto.randomUUID(),
+        id: uid(),
         name: src.name.replace(/(\.\w+)?$/, '') + ' - 副本',
         filter: { ...src.filter },
         corners: src.corners.map((c) => ({ ...c })),
@@ -234,7 +240,9 @@ export const useStore = create<Store>((set, get) => ({
   dropToast: (id) => set((s) => ({ toasts: s.toasts.filter((t) => t.id !== id) })),
 
   setExporting: (e) => set({ exporting: e }),
-}));
+
+  setExportCancel: (fn) => set({ exportCancel: fn }),
+})));
 
 export function filterLabel(mode: FilterState['mode']): string {
   const map: Record<FilterState['mode'], string> = {
