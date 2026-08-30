@@ -132,8 +132,8 @@ export default function Workspace() {
         <FilterPanel page={page} className="hidden lg:flex min-h-0 w-80 border-l border-ink-700 bg-ink-900 flex-col overflow-y-auto" />
       </div>
 
-      {/* ===== 移动底部：缩略图横滑 + 工具（矮横屏手机也启用）===== */}
-      <div className="hidden md:hidden landscape-bar relative shrink-0 border-t border-ink-700 bg-ink-900 safe-bottom">
+      {/* ===== 移动底部：缩略图横滑 + 工具（矮横屏手机同样显示）===== */}
+      <div className="md:hidden landscape-bar relative z-50 shrink-0 border-t border-ink-700 bg-ink-900 safe-bottom">
         <ThumbList direction="horizontal" className="flex gap-2 overflow-x-auto px-2 py-2" />
         <div className="flex items-center gap-1 px-2 py-1.5 border-t border-ink-800 overflow-x-auto">
           <button className="btn-panel shrink-0 text-xs" onClick={() => setMobilePanel((v) => !v)}>
@@ -154,8 +154,8 @@ export default function Workspace() {
           </button>
         </div>
         {mobilePanel && (
-          <div className="absolute right-0 bottom-0 top-12 w-72 z-40 bg-ink-900 border-l border-ink-700 overflow-y-auto lg:hidden">
-            <FilterPanel page={page} className="flex flex-col p-3 gap-4" onDone={() => setMobilePanel(false)} />
+          <div className="fixed right-0 top-12 bottom-0 w-72 z-40 bg-ink-900 border-l border-ink-700 overflow-y-auto shadow-2xl lg:hidden">
+            <FilterPanel page={page} className="flex flex-col p-3 gap-4 pb-24" onDone={() => setMobilePanel(false)} />
           </div>
         )}
       </div>
