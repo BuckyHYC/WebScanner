@@ -111,3 +111,30 @@ input[type='range']::-moz-range-thumb {
 .touch-none {
   touch-action: none;
 }
+
+/* ===== 首页取景框扫描线 ===== */
+@keyframes scan-sweep {
+  0% {
+    transform: translateY(0);
+    opacity: 0;
+  }
+  8% {
+    opacity: 1;
+  }
+  92% {
+    opacity: 1;
+  }
+  100% {
+    transform: translateY(150px);
+    opacity: 0;
+  }
+}
+.scan-line {
+  animation: scan-sweep 2.8s cubic-bezier(0.45, 0, 0.55, 1) infinite;
+}
+@media (prefers-reduced-motion: reduce) {
+  .scan-line {
+    animation: none;
+    opacity: 0.4;
+  }
+}
