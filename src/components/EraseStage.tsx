@@ -253,8 +253,8 @@ export default function EraseStage({ page }: Props) {
 
   return (
     <div className="h-full flex flex-col min-h-0">
-      {/* 工具行 */}
-      <div className="flex items-center gap-1.5 px-2 py-1.5 overflow-x-auto shrink-0 border-b border-ink-800 bg-ink-900/40">
+      {/* 工具行（md+ 自动换行，手机横向滚动） */}
+      <div className="flex items-center gap-1.5 px-2 py-1.5 shrink-0 border-b border-ink-800 bg-ink-900/40 flex-nowrap overflow-x-auto md:flex-wrap md:overflow-visible">
         <button
           className={`btn-panel shrink-0 text-xs ${tool === 'brush' ? '!bg-accent !text-white' : ''}`}
           onClick={() => setTool('brush')}
@@ -313,7 +313,7 @@ export default function EraseStage({ page }: Props) {
           <canvas
             ref={displayRef}
             className="block object-contain rounded shadow-2xl"
-            style={{ maxHeight: 'calc(100vh - 220px)', maxWidth: '100%', height: 'auto', width: '100%' }}
+            style={{ maxHeight: '100%', maxWidth: '100%', height: 'auto', width: '100%' }}
           />
           <canvas
             ref={overlayRef}

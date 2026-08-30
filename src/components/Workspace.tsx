@@ -96,7 +96,7 @@ export default function Workspace() {
 
       {/* ===== 主体三栏（PC）/ 单栏（移动）===== */}
       <div className="flex-1 flex min-h-0">
-        <ThumbList direction="vertical" className="hidden md:flex w-52 lg:w-60 border-r border-ink-700 bg-ink-900" />
+        <ThumbList direction="vertical" className="hidden md:flex flex-col min-h-0 w-52 lg:w-60 border-r border-ink-700 bg-ink-900 overflow-y-auto landscape-hide-left" />
 
         <main className="flex-1 min-w-0 flex flex-col">
           {/* 裁剪 / 增强 Tab */}
@@ -129,11 +129,11 @@ export default function Workspace() {
           </div>
         </main>
 
-        <FilterPanel page={page} className="hidden lg:flex w-80 border-l border-ink-700 bg-ink-900 flex-col overflow-y-auto" />
+        <FilterPanel page={page} className="hidden lg:flex min-h-0 w-80 border-l border-ink-700 bg-ink-900 flex-col overflow-y-auto" />
       </div>
 
-      {/* ===== 移动底部：缩略图横滑 + 工具 ===== */}
-      <div className="md:hidden relative shrink-0 border-t border-ink-700 bg-ink-900 safe-bottom">
+      {/* ===== 移动底部：缩略图横滑 + 工具（矮横屏手机也启用）===== */}
+      <div className="hidden md:hidden landscape-bar relative shrink-0 border-t border-ink-700 bg-ink-900 safe-bottom">
         <ThumbList direction="horizontal" className="flex gap-2 overflow-x-auto px-2 py-2" />
         <div className="flex items-center gap-1 px-2 py-1.5 border-t border-ink-800 overflow-x-auto">
           <button className="btn-panel shrink-0 text-xs" onClick={() => setMobilePanel((v) => !v)}>

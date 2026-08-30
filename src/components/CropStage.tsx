@@ -34,7 +34,7 @@ export default function CropStage({ page, onNext }: Props) {
   const [imgSize, setImgSize] = useState<{ w: number; h: number } | null>(null);
   const [zoom, setZoom] = useState(1);
   const [pan, setPan] = useState<Point>({ x: 0, y: 0 });
-  const [showPreview, setShowPreview] = useState(true);
+  const [showPreview, setShowPreview] = useState(() => (typeof window !== 'undefined' ? window.innerHeight > 700 : true));
 
   // 视图状态镜像（原生事件处理器内读 ref，避免闭包过期与重复绑定）
   const viewRef = useRef({ zoom: 1, pan: { x: 0, y: 0 } as Point });
@@ -402,8 +402,8 @@ export default function CropStage({ page, onNext }: Props) {
 
   return (
     <div className="h-full flex flex-col min-h-0">
-      {/* 工具行 */}
-      <div className="flex items-center gap-1.5 px-2 py-1.5 overflow-x-auto shrink-0 border-b border-ink-800 bg-ink-900/40">
+      {/* 工具行（md+ 自动换行保证按钮可见，手机横向滚动） */}
+      <div className="flex items-center gap-1.5 px-2 py-1.5 shrink-0 border-b border-ink-800 bg-ink-900/40 flex-nowrap overflow-x-auto md:flex-wrap md:overflow-visible">
         <button className="btn-panel shrink-0 text-xs" onClick={() => void autoDetect()}>
           🔍 自动检测
         </button>
@@ -548,11 +548,11 @@ export default function CropStage({ page, onNext }: Props) {
           拖动角点调整边缘 · 滚轮/双指缩放 · 单指平移
         </div>
 
-        {/* 实时矫正预览 */}
+        {/* 实时矫正预览（矮屏默认隐藏，避免遮挡画布操作区） */}
         {showPreview && (
           <div className="absolute bottom-3 right-3 rounded-lg border border-ink-600 bg-ink-900/90 p-1.5 shadow-xl">
             <div className="text-[10px] text-slate-400 px-0.5 pb-1">矫正预览</div>
-            <canvas ref={previewRef} className="max-w-[42vw] sm:max-w-[220px] max-h-[30vh] rounded bg-white object-contain" />
+            <canvas ref={previewRef} className="max-w-[30vw] sm:max-w-[170px] max-h-[20vh] rounded bg-white object-contain" />
           </div>
         )}
       </div>

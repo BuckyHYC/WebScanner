@@ -96,6 +96,17 @@ input[type='range']::-moz-range-thumb {
   padding-bottom: env(safe-area-inset-bottom, 0px);
 }
 
+/* 矮横屏（手机横屏/短视口 iPad）：底部操作栏强制显示 */
+@media (min-width: 768px) and (max-height: 520px) {
+  .landscape-bar {
+    display: flex !important;
+  }
+  /* 左列缩略图由底部横滑条替代 */
+  .landscape-hide-left {
+    display: none !important;
+  }
+}
+
 /* 防止触摸拖拽时页面滚动/选中 */
 .touch-none {
   touch-action: none;

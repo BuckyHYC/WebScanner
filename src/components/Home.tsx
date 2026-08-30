@@ -15,7 +15,7 @@ export default function Home({ draftRestored, onDraftSeen }: Props) {
   const toast = useStore((s) => s.toast);
 
   return (
-    <div className="h-full flex flex-col items-center justify-center px-6 gap-6">
+    <div className="h-full flex flex-col items-center justify-center px-6 gap-6 overflow-y-auto py-6">
       <div className="text-center">
         <div className="text-4xl font-bold mb-2">
           智能<span className="text-accent">扫描</span>
