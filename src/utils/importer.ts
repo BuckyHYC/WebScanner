@@ -64,8 +64,8 @@ export async function backgroundDetect(pages: Page[]) {
     // 页面可能已被删除
     if (!useStore.getState().pages.some((x) => x.id === p.id)) continue;
     try {
-      const quad = await autoDetectPage(p);
-      if (quad) useStore.getState().updatePage(p.id, { corners: quad }, false);
+      const outcome = await autoDetectPage(p);
+      if (outcome) useStore.getState().updatePage(p.id, { corners: outcome.quad }, false);
     } catch (e) {
       console.warn('自动检测失败', e);
     }

@@ -1,6 +1,7 @@
 import type { FilterState, Page, Point } from '../types';
 import { loadOpenCV } from './opencvLoader';
 import { detectQuadInCanvas } from './detect';
+import type { DetectOutcome } from './detect';
 import { targetSizeFromQuad, quadToPixels } from './geometry';
 import { enhanceMat, isFilterActive } from './enhance';
 import { applyEraseMask } from './erase';
@@ -179,8 +180,9 @@ export async function renderFinal(page: Page, maxEdge: number, reuseCanvas?: HTM
   }
 }
 
-/** 对一页执行自动边缘检测并更新角点（在低清预览上检测，保证速度）。未识别返回 null */
-export async function autoDetectPage(page: Page): Promise<Point[] | null> {
+/** 对一页执行自动边缘检测（低清预览上检测，保证速度）。
+ *  status=found  识别成功；status=fallback 未识别（内缩参考框/分块边缘） */
+export async function autoDetectPage(page: Page): Promise<DetectOutcome | null> {
   const cv = await loadOpenCV();
   const img = new Image();
   img.src = page.preview;

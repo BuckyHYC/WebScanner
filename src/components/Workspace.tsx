@@ -21,8 +21,8 @@ async function runAutoCropAll() {
   useStore.getState().toast('正在批量识别边缘…');
   for (const p of pages) {
     try {
-      const quad = await autoDetectPage(p);
-      if (quad) useStore.getState().updatePage(p.id, { corners: quad }, false);
+      const outcome = await autoDetectPage(p);
+      if (outcome) useStore.getState().updatePage(p.id, { corners: outcome.quad }, false);
     } catch {
       /* 忽略单页失败 */
     }

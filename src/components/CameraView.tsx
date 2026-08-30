@@ -84,7 +84,8 @@ export default function CameraView() {
           frame.width = 240;
           frame.height = Math.round(video.videoHeight * fs);
           frame.getContext('2d', { willReadFrequently: true })!.drawImage(video, 0, 0, frame.width, frame.height);
-          const quad = detectQuadInCanvas(cv, frame);
+          const outcome = detectQuadInCanvas(cv, frame);
+          const quad = outcome?.quad ?? null;
 
           // 计算视频在容器中的显示区域（object-contain）
           const cw = overlay.clientWidth;

@@ -348,12 +348,17 @@ export default function CropStage({ page, onNext }: Props) {
   const autoDetect = async () => {
     useStore.getState().toast('正在识别边缘…');
     try {
-      const quad = await autoDetectPage(page);
-      if (quad) {
-        setProps({ corners: quad });
-        useStore.getState().toast('边缘识别完成', 'success');
+      const outcome = await autoDetectPage(page);
+      if (!outcome) {
+        useStore.getState().toast('检测失败，请手动拖动四角', 'error');
+        return;
+      }
+      setProps({ corners: outcome.quad });
+      if (outcome.status === 'found') {
+        useStore.getState().toast(`边缘识别完成（${outcome.elapsedMs}ms）`, 'success');
       } else {
-        useStore.getState().toast('未识别到文档边缘，已保留当前角点', 'error');
+        // 兜底：内缩参考框/分块边缘，引导用户手动修正
+        useStore.getState().toast('未检测到文档，请手动调整四角', 'error');
       }
     } catch {
       useStore.getState().toast('边缘识别失败', 'error');
