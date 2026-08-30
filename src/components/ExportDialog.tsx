@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
 import type { ExportOptions, Page, PdfSize, Quality } from '../types';
 import { useStore } from '../store/useStore';
-import { downloadBlob, exportJpgZip, exportPdf, exportSingleJpg } from '../utils/exporter';
+import { downloadBlob, exportJpgDirectly, exportJpgZip, exportPdf, exportSingleJpg } from '../utils/exporter';
 import { renderFinal } from '../utils/render';
 
 interface Props {
@@ -22,6 +22,7 @@ export default function ExportDialog({ onClose }: Props) {
     author: '',
   });
   const [jpgScope, setJpgScope] = useState<'current' | 'all'>('all');
+  const [jpgDelivery, setJpgDelivery] = useState<'zip' | 'direct'>('zip');
   const [previewOpen, setPreviewOpen] = useState(false);
   const [running, setRunning] = useState(false);
 
@@ -45,6 +46,13 @@ export default function ExportDialog({ onClose }: Props) {
         downloadBlob(blob, `${opts.prefix || 'scan'}.pdf`);
       } else if (targets.length === 1) {
         await exportSingleJpg(targets[0], opts, pages.indexOf(targets[0]));
+      } else if (jpgDelivery === 'direct') {
+        // 逐张直接导出：每张单独下载，移动端可直接存入相册
+        const indices = targets.map((t) => pages.indexOf(t));
+        await exportJpgDirectly(targets, opts, indices, (done, total) =>
+          s.setExporting({ active: true, done, total, label: '正在逐张导出…' }),
+        );
+        s.toast(`已逐张导出 ${targets.length} 张，请在下载/相册中查看`, 'success');
       } else {
         const blob = await exportJpgZip(targets, opts, (done, total) =>
           s.setExporting({ active: true, done, total, label: '正在打包 ZIP…' }),
@@ -95,8 +103,25 @@ export default function ExportDialog({ onClose }: Props) {
           ))}
         </div>
 
+        {/* JPG 多页打包方式 */}
         {opts.format === 'jpg' && targets.length > 1 && (
-          <p className="text-xs text-amber-400/90">多页 JPG 将自动打包为 ZIP（共 {targets.length} 页）</p>
+          <Field label="导出方式">
+            <Segmented
+              value={jpgDelivery}
+              onChange={(v) => setJpgDelivery(v as 'zip' | 'direct')}
+              options={[
+                ['zip', 'ZIP 压缩包'],
+                ['direct', '逐张直接导出'],
+              ]}
+            />
+            {jpgDelivery === 'zip' ? (
+              <p className="text-[11px] text-slate-500">多页打包为一个 ZIP 文件（共 {targets.length} 页），适合电脑端整理</p>
+            ) : (
+              <p className="text-[11px] text-slate-500">
+                逐张下载 {targets.length} 张图片，手机端可直接保存到相册；若浏览器提示是否允许下载多个文件，请选择允许
+              </p>
+            )}
+          </Field>
         )}
 
         {/* JPG 范围 */}

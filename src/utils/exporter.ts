@@ -115,3 +115,20 @@ export async function exportSingleJpg(page: Page, opts: ExportOptions, index: nu
   const jpeg = await renderPageJpeg(page, opts);
   downloadBlob(jpeg, pageFileName(opts.prefix, index));
 }
+
+/** 逐张直接导出 JPG：每张单独触发下载（移动端浏览器可直接存入相册/文件）。
+ * indices 为各页在全部页面中的原始序号（用于文件名编号）。 */
+export async function exportJpgDirectly(
+  pages: Page[],
+  opts: ExportOptions,
+  indices: number[],
+  onProgress?: (done: number, total: number) => void,
+): Promise<void> {
+  for (let i = 0; i < pages.length; i++) {
+    const jpeg = await renderPageJpeg(pages[i], opts);
+    downloadBlob(jpeg, pageFileName(opts.prefix, indices[i]));
+    onProgress?.(i + 1, pages.length);
+    // 间隔触发，降低浏览器拦截连续多文件下载的概率
+    if (i < pages.length - 1) await new Promise((r) => setTimeout(r, 350));
+  }
+}
