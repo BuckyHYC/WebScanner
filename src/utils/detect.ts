@@ -377,12 +377,6 @@ function strategyCorners(cv: any, pool: ReturnType<typeof createMatPool>, gray: 
   if (pts.length === 0) return { quad: null, corners };
 
   // 四象限各找"最靠近外侧角"的角点
-  const quads: Array<[Point, Point]> = [
-    [{ x: 0, y: 0 }, { x: W / 2, y: H / 2 }],
-    [{ x: W, y: 0 }, { x: W / 2, y: 0 }],
-    [{ x: W, y: H }, { x: W / 2, y: H / 2 }],
-    [{ x: 0, y: H }, { x: 0, y: H / 2 }],
-  ];
   const outer: Array<{ p: Point; o: Point }> = [
     { p: pts[0], o: { x: 0, y: 0 } },
     { p: pts[0], o: { x: W, y: 0 } },
@@ -399,7 +393,6 @@ function strategyCorners(cv: any, pool: ReturnType<typeof createMatPool>, gray: 
     const dNew = Math.hypot(p.x - outer[qi].o.x, p.y - outer[qi].o.y);
     if (!cur || dNew < dCur) found[qi] = p;
   }
-  void quads;
   if (found.every((p) => p !== null)) {
     const quad = orderQuad(found as Point[]);
     corners.push(...quad);

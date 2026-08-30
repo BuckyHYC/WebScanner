@@ -1,4 +1,4 @@
-﻿import { useEffect, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { useStore } from '../store/useStore';
 import { useShortcuts } from '../hooks/useShortcuts';
 import { IconHome, IconUndo, IconRedo, IconScissors, IconSparkles, IconPlus, IconCamera, IconSliders } from './icons';
@@ -37,7 +37,6 @@ export default function Workspace() {
   const [tab, setTab] = useState<'crop' | 'enhance' | 'erase'>('crop');
   const [exportOpen, setExportOpen] = useState(false);
   const [mobilePanel, setMobilePanel] = useState(false);
-  const [insertFileRef] = useState<{ current: ((f: File[]) => void) | null }>(() => ({ current: null }));
   const page: Page | undefined = pages[current];
 
   useShortcuts();
@@ -125,9 +124,7 @@ export default function Workspace() {
               </button>
             ))}
             <div className="flex-1" />
-            <span className="text-xs text-slate-500 hidden sm:inline">
-              {page.name} · {page.width}×{page.height}
-            </span>
+            <PageNameEditor page={page} />
           </div>
 
           <div className="flex-1 min-h-0 relative bg-ink-950">
@@ -182,5 +179,67 @@ export default function Workspace() {
 
       {exportOpen && <ExportDialog onClose={() => setExportOpen(false)} />}
     </div>
+  );
+}
+
+/** 顶栏页名显示：双击（PC）/ 长按 500ms（移动）进入重命名 */
+function PageNameEditor({ page }: { page: Page }) {
+  const [editing, setEditing] = useState(false);
+  const [draft, setDraft] = useState(page.name);
+  const timerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+
+  const clearTimer = () => {
+    if (timerRef.current) {
+      clearTimeout(timerRef.current);
+      timerRef.current = null;
+    }
+  };
+  useEffect(() => clearTimer, []);
+
+  const startEdit = () => {
+    setDraft(page.name);
+    setEditing(true);
+  };
+
+  const commit = () => {
+    setEditing(false);
+    const name = draft.trim();
+    if (name && name !== page.name) {
+      useStore.getState().updatePage(page.id, { name }, true);
+    }
+  };
+
+  if (editing) {
+    return (
+      <input
+        autoFocus
+        className="w-28 sm:w-40 min-w-0 bg-ink-800 border border-accent/60 rounded px-1.5 py-0.5 text-xs text-slate-200 outline-none"
+        value={draft}
+        onChange={(e) => setDraft(e.target.value)}
+        onBlur={commit}
+        onKeyDown={(e) => {
+          if (e.key === 'Enter') commit();
+          if (e.key === 'Escape') setEditing(false);
+        }}
+      />
+    );
+  }
+
+  return (
+    <span
+      className="text-xs text-slate-500 min-w-0 max-w-[7rem] sm:max-w-none truncate cursor-text"
+      title="双击或长按重命名"
+      onDoubleClick={startEdit}
+      onTouchStart={() => {
+        clearTimer();
+        timerRef.current = setTimeout(startEdit, 500);
+      }}
+      onTouchEnd={clearTimer}
+      onTouchMove={clearTimer}
+      onTouchCancel={clearTimer}
+    >
+      {page.name}
+      <span className="hidden sm:inline"> · {page.width}×{page.height}</span>
+    </span>
   );
 }

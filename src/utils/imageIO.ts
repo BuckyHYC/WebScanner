@@ -12,6 +12,10 @@ function isTiff(file: File): boolean {
   return /tiff?/i.test(file.type) || /\.tiff?$/i.test(file.name);
 }
 
+function isPng(file: File): boolean {
+  return file.type === 'image/png' || /\.png$/i.test(file.name);
+}
+
 /** bitmap 绘制到限制最大边长的 canvas（先铺白底，避免透明区域变黑） */
 function bitmapToCanvas(bitmap: ImageBitmap | HTMLImageElement, maxEdge: number): HTMLCanvasElement {
   const scale = Math.min(1, maxEdge / Math.max(bitmap.width, bitmap.height));
@@ -74,8 +78,9 @@ async function tiffToJpegBlobs(file: File): Promise<Blob[]> {
 
 /**
  * blob → 统一 DecodedImage：解码 → 生成预览/缩略图；
- * needsReencode=true 时把底图统一重编码为 JPEG（原生格式 strip EXIF/透明填白，
- * 与 HEIC/TIFF 分支保持一致管线）。
+ * needsReencode=true 时把底图统一重编码为 JPEG（strip EXIF/透明填白）。
+ * PNG 无损，调用方直接原样保留 blob。
+ * 重编码复用已解码的 source（bitmap/img），不做二次解码。
  */
 async function blobToDecoded(blob: Blob, needsReencode: boolean): Promise<DecodedImage> {
   let width = 0;
@@ -97,6 +102,7 @@ async function blobToDecoded(blob: Blob, needsReencode: boolean): Promise<Decode
       height = img.naturalHeight;
       source = img;
     } finally {
+      // img 绘制完成后才能 revoke，延迟释放
       setTimeout(() => URL.revokeObjectURL(url), 1000);
     }
   }
@@ -105,15 +111,14 @@ async function blobToDecoded(blob: Blob, needsReencode: boolean): Promise<Decode
   const thumbCanvas = bitmapToCanvas(source, 320);
   const preview = canvasToDataURL(previewCanvas, 0.85);
   const thumb = canvasToDataURL(thumbCanvas, 0.8);
-  (source as ImageBitmap).close?.();
 
   let finalBlob = blob;
   if (needsReencode) {
-    const bitmap = await createImageBitmap(blob);
-    const full = bitmapToCanvas(bitmap, 99999);
+    // 复用已解码的 source，避免对同一文件二次 createImageBitmap
+    const full = bitmapToCanvas(source, 99999);
     finalBlob = await canvasToBlob(full, 'image/jpeg', 0.98);
-    bitmap.close?.();
   }
+  (source as ImageBitmap).close?.();
 
   return { blob: finalBlob, width, height, preview, thumb };
 }
@@ -121,7 +126,8 @@ async function blobToDecoded(blob: Blob, needsReencode: boolean): Promise<Decode
 /** 解码单个文件为单页结构（TIFF 仅取第一帧，供向后兼容与特殊场景） */
 export async function decodeImageFile(file: File): Promise<DecodedImage> {
   let blob: Blob = file;
-  let needsReencode = true;
+  // PNG 无损原样保留（渲染层可处理任意格式）；其余原生格式重编码统一管线
+  let needsReencode = !isPng(file);
   if (isHeic(file)) {
     blob = await heicToJpegBlob(file);
     needsReencode = false;

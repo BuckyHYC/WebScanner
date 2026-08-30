@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
 import type { ExportOptions, Page, PdfSize, Quality } from '../types';
 import { useStore } from '../store/useStore';
-import { downloadBlob, exportJpgDirectly, exportJpgZip, exportPdf, exportSingleJpg } from '../utils/exporter';
+import { downloadBlob, exportImagesDirectly, exportImagesZip, exportPdf, exportSingleImage } from '../utils/exporter';
 import { renderFinal } from '../utils/render';
 import { IconDoc, IconImage, IconEye, IconDownload } from './icons';
 
@@ -12,15 +12,20 @@ interface Props {
 export default function ExportDialog({ onClose }: Props) {
   const pages = useStore((s) => s.pages);
   const current = useStore((s) => s.current);
-  const [opts, setOpts] = useState<ExportOptions>({
-    format: 'pdf',
-    pageIds: 'all',
-    pdfSize: 'a4',
-    quality: 'high',
-    jpgQuality: 92,
-    prefix: 'Scan',
-    title: '',
-    author: '',
+  const [opts, setOpts] = useState<ExportOptions>(() => {
+    // 全部页面为黑白模式时建议默认 PNG 无损（黑白二值图 JPEG 压缩伪影明显且体积更大）
+    const ps = useStore.getState().pages;
+    const allBw = ps.length > 0 && ps.every((p) => p.filter.mode === 'bw');
+    return {
+      format: allBw ? 'png' : 'pdf',
+      pageIds: 'all',
+      pdfSize: 'a4',
+      quality: 'high',
+      jpgQuality: 92,
+      prefix: 'Scan',
+      title: '',
+      author: '',
+    };
   });
   const [jpgScope, setJpgScope] = useState<'current' | 'all'>('all');
   const [jpgDelivery, setJpgDelivery] = useState<'zip' | 'direct'>('zip');
@@ -33,6 +38,9 @@ export default function ExportDialog({ onClose }: Props) {
     if (opts.format === 'pdf') return pages;
     return jpgScope === 'current' && pages[current] ? [pages[current]] : pages;
   }, [opts.format, jpgScope, pages, current]);
+
+  /** 图片格式的扩展名（JPG/PNG） */
+  const imgExt = opts.format === 'png' ? 'png' : 'jpg';
 
   const run = async () => {
     if (targets.length === 0) return;
@@ -49,17 +57,17 @@ export default function ExportDialog({ onClose }: Props) {
         );
         downloadBlob(blob, `${opts.prefix || 'scan'}.pdf`);
       } else if (targets.length === 1) {
-        await exportSingleJpg(targets[0], opts, pages.indexOf(targets[0]), controller.signal);
+        await exportSingleImage(targets[0], opts, pages.indexOf(targets[0]), controller.signal);
       } else if (jpgDelivery === 'direct') {
         // 逐张直接导出：每张单独下载，移动端可直接存入相册
         const indices = targets.map((t) => pages.indexOf(t));
-        await exportJpgDirectly(targets, opts, indices, (done, total) =>
+        await exportImagesDirectly(targets, opts, indices, (done, total) =>
           s.setExporting({ active: true, done, total, label: '正在逐张导出…' }),
           controller.signal,
         );
         s.toast(`已逐张导出 ${targets.length} 张，请在下载/相册中查看`, 'success');
       } else {
-        const blob = await exportJpgZip(targets, opts, (done, total) =>
+        const blob = await exportImagesZip(targets, opts, (done, total) =>
           s.setExporting({ active: true, done, total, label: '正在打包 ZIP…' }),
           controller.signal,
         );
@@ -95,16 +103,17 @@ export default function ExportDialog({ onClose }: Props) {
         </div>
 
         {/* 格式 */}
-        <div className="grid grid-cols-2 gap-2">
+        <div className="grid grid-cols-3 gap-2">
           {(
             [
               ['pdf', 'PDF 文档'],
               ['jpg', 'JPG 图片'],
+              ['png', 'PNG 无损'],
             ] as const
           ).map(([k, label]) => (
             <button
               key={k}
-              className={`rounded-lg py-2.5 text-sm border flex items-center justify-center gap-2 transition-colors ${
+              className={`rounded-lg py-2.5 text-sm border flex items-center justify-center gap-1.5 transition-colors ${
                 opts.format === k
                   ? 'border-accent bg-accent/15 text-accent'
                   : 'border-ink-600 bg-ink-800 text-slate-300 hover:border-ink-700 hover:bg-ink-700'
@@ -116,9 +125,12 @@ export default function ExportDialog({ onClose }: Props) {
             </button>
           ))}
         </div>
+        {opts.format === 'png' && (
+          <p className="text-[11px] text-slate-500 -mt-2">PNG 无损导出，黑白文档文字更锐利、无压缩伪影</p>
+        )}
 
-        {/* JPG 多页打包方式 */}
-        {opts.format === 'jpg' && targets.length > 1 && (
+        {/* 图片多页打包方式 */}
+        {opts.format !== 'pdf' && targets.length > 1 && (
           <Field label="导出方式">
             <Segmented
               value={jpgDelivery}
@@ -138,8 +150,8 @@ export default function ExportDialog({ onClose }: Props) {
           </Field>
         )}
 
-        {/* JPG 范围 */}
-        {opts.format === 'jpg' && pages.length > 1 && (
+        {/* 图片导出范围 */}
+        {opts.format !== 'pdf' && pages.length > 1 && (
           <Field label="导出范围">
             <Segmented
               value={jpgScope}
@@ -205,8 +217,8 @@ export default function ExportDialog({ onClose }: Props) {
             {opts.format === 'pdf'
               ? `将导出 ${opts.prefix || 'scan'}.pdf`
               : targets.length > 1
-                ? `文件名形如 ${opts.prefix || 'scan'}_001.jpg`
-                : `将导出 ${opts.prefix || 'scan'}_${String(pages.indexOf(targets[0]) + 1).padStart(3, '0')}.jpg`}
+                ? `文件名形如 ${opts.prefix || 'scan'}_001.${imgExt}`
+                : `将导出 ${opts.prefix || 'scan'}_${String(pages.indexOf(targets[0]) + 1).padStart(3, '0')}.${imgExt}`}
           </p>
         </Field>
 

@@ -3,7 +3,7 @@ import type { Page, Point } from '../types';
 import { useStore } from '../store/useStore';
 import { loadOpenCV } from '../utils/opencvLoader';
 import { renderGeometry } from '../utils/render';
-import { applyEraseMask, composeMask, loadImage, paintStroke } from '../utils/erase';
+import { applyEraseMask, composeMask, paintStroke } from '../utils/erase';
 import { IconBrush, IconEraser, IconUndo, IconTrash } from './icons';
 
 interface Props {
@@ -256,8 +256,6 @@ export default function EraseStage({ page }: Props) {
     return () => window.removeEventListener('keydown', onKey, true);
   }, [undoStroke]);
 
-  const dpr = typeof window !== 'undefined' ? window.devicePixelRatio || 1 : 1;
-
   return (
     <div className="h-full flex flex-col min-h-0">
       {/* 工具行（md+ 自动换行，手机横向滚动） */}
@@ -344,10 +342,6 @@ export default function EraseStage({ page }: Props) {
           </div>
         )}
       </div>
-      <span className="hidden">{dpr}</span>
     </div>
   );
 }
-
-// 供 loadImage 类型引用（避免未使用告警的兼容引用）
-void loadImage;

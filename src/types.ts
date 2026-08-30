@@ -55,6 +55,8 @@ export interface Toast {
   id: number;
   text: string;
   tone: 'info' | 'success' | 'error';
+  /** 可选操作按钮（如撤销删除） */
+  action?: { label: string; run: () => void };
 }
 
 /** PDF 导出页面尺寸策略 */
@@ -64,7 +66,7 @@ export type PdfSize = 'a4' | 'fit' | 'fitWidth';
 export type Quality = 'high' | 'mid' | 'low';
 
 export interface ExportOptions {
-  format: 'pdf' | 'jpg';
+  format: 'pdf' | 'jpg' | 'png';
   pageIds: string[] | 'all';
   pdfSize: PdfSize;
   quality: Quality;

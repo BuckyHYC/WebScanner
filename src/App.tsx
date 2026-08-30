@@ -150,7 +150,7 @@ export default function App() {
         {toasts.map((t) => (
           <div
             key={t.id}
-            className={`rounded-lg px-4 py-2 text-sm shadow-lg ${
+            className={`pointer-events-auto rounded-lg px-4 py-2 text-sm shadow-lg flex items-center gap-3 ${
               t.tone === 'success'
                 ? 'bg-emerald-600/90 text-white'
                 : t.tone === 'error'
@@ -158,7 +158,18 @@ export default function App() {
                   : 'bg-ink-700/95 text-slate-200'
             }`}
           >
-            {t.text}
+            <span>{t.text}</span>
+            {t.action && (
+              <button
+                className="shrink-0 font-medium text-accent hover:text-accent-hover underline underline-offset-2"
+                onClick={() => {
+                  t.action!.run();
+                  useStore.getState().dropToast(t.id);
+                }}
+              >
+                {t.action.label}
+              </button>
+            )}
           </div>
         ))}
       </div>

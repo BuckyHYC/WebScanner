@@ -48,7 +48,10 @@ export async function importFiles(files: File[], insertAt?: number) {
       }
     } catch (e) {
       console.error(e);
-      useStore.getState().toast(`${imageFiles[i].name} 解码失败`, 'error');
+      // 解码失败细分提示：大文件大概率超出浏览器 canvas/内存上限
+      const sizeMB = imageFiles[i].size / (1024 * 1024);
+      const hint = sizeMB > 30 ? '（图片可能过大，请压缩后重试）' : '（文件损坏或格式不支持）';
+      useStore.getState().toast(`${imageFiles[i].name} 解码失败${hint}`, 'error');
     }
   }
   if (newPages.length === 0) return;

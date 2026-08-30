@@ -47,14 +47,13 @@ interface Store {
   updateFilter: (id: string, patch: Partial<FilterState>, history?: boolean) => void;
   applyFilterToAll: () => void;
   autoEnhanceAll: () => void;
-  autoCropAll: () => void;
   resetCorners: (id: string) => void;
 
   pushHistory: () => void;
   undo: () => void;
   redo: () => void;
 
-  toast: (text: string, tone?: Toast['tone']) => void;
+  toast: (text: string, tone?: Toast['tone'], action?: Toast['action']) => void;
   dropToast: (id: number) => void;
   setExporting: (e: Store['exporting']) => void;
   setExportCancel: (fn: (() => void) | null) => void;
@@ -93,11 +92,24 @@ export const useStore = create<Store>()(subscribeWithSelector((set, get) => ({
   },
 
   removePage: (index) => {
+    const removed = get().pages[index];
+    if (!removed) return;
     get().pushHistory();
     set((s) => {
       const pages = s.pages.filter((_, i) => i !== index);
       const current = Math.min(s.current, Math.max(0, pages.length - 1));
       return { pages, current };
+    });
+    // 删页 toast 带撤销：一键恢复到原位置
+    get().toast(`已删除「${removed.name}」`, 'info', {
+      label: '撤销',
+      run: () => {
+        const st = useStore.getState();
+        // 已恢复过（如 undo）则跳过
+        if (st.pages.some((p) => p.id === removed.id)) return;
+        st.insertPage(Math.min(index, st.pages.length), removed);
+        st.setView('editor');
+      },
     });
   },
 
@@ -177,11 +189,6 @@ export const useStore = create<Store>()(subscribeWithSelector((set, get) => ({
     }));
   },
 
-  /** 角点批量重测由调用方（Workspace）异步执行后调用 updatePage */
-  autoCropAll: () => {
-    /* 在 Workspace 中异步执行：逐页 detect 后 updatePage(id, {corners}, false)，最后统一 pushHistory */
-  },
-
   resetCorners: (id) => {
     get().pushHistory();
     set((s) => ({
@@ -231,10 +238,11 @@ export const useStore = create<Store>()(subscribeWithSelector((set, get) => ({
       };
     }),
 
-  toast: (text, tone = 'info') => {
+  toast: (text, tone = 'info', action) => {
     const id = toastSeq++;
-    set((s) => ({ toasts: [...s.toasts, { id, text, tone }] }));
-    setTimeout(() => get().dropToast(id), 2600);
+    set((s) => ({ toasts: [...s.toasts, { id, text, tone, action }] }));
+    // 带操作按钮的 toast 显示久一点，给用户反应时间
+    setTimeout(() => get().dropToast(id), action ? 3600 : 2600);
   },
 
   dropToast: (id) => set((s) => ({ toasts: s.toasts.filter((t) => t.id !== id) })),
