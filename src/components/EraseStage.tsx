@@ -29,6 +29,7 @@ export default function EraseStage({ page }: Props) {
 
   // 底图缓存（仅几何+滤镜，不含擦除）与逐笔蒙版历史
   const baseRef = useRef<{ key: string; canvas: HTMLCanvasElement } | null>(null);
+  const baseCleanRef = useRef<HTMLCanvasElement | null>(null); // 未擦除的干净底图（撤销重放基准）
   const strokesRef = useRef<string[]>([]); // 每笔蒙版 dataURL（显示分辨率）
   const painting = useRef(false);
   const lastPt = useRef<Point | null>(null);
@@ -42,14 +43,17 @@ export default function EraseStage({ page }: Props) {
       const el = containerRef.current;
       const target = Math.max(800, Math.min(1600, Math.round((el?.clientWidth ?? 1000) * (window.devicePixelRatio || 1))));
       const canvas = await renderGeometry(page, target);
-      // 应用已存储的累计蒙版（来自历史草稿）
+      // 缓存"未擦除的干净底图"：撤销时从它重放剩余笔画
+      baseCleanRef.current = canvas;
+      // 应用已存储的累计蒙版（来自历史草稿/重建）：作为可撤回的一笔
       let working = canvas;
-      if (page.eraseMask) {
-        working = await applyEraseMask(await loadOpenCV(), working, page.eraseMask);
+      const existing = page.eraseMask ?? null;
+      if (existing) {
+        working = await applyEraseMask(await loadOpenCV(), working, existing);
       }
       baseRef.current = { key: geoKey, canvas: working };
-      strokesRef.current = [];
-      setStrokeCount(0);
+      strokesRef.current = existing ? [existing] : [];
+      setStrokeCount(strokesRef.current.length);
       const display = displayRef.current;
       const overlay = overlayRef.current;
       if (display && overlay) {
@@ -69,6 +73,7 @@ export default function EraseStage({ page }: Props) {
 
   useEffect(() => {
     baseRef.current = null;
+    baseCleanRef.current = null;
     void rebuild();
   }, [rebuild]);
 
@@ -109,17 +114,18 @@ export default function EraseStage({ page }: Props) {
 
   /** 撤销上一笔：弹出一笔蒙版，从干净底图顺序重放剩余各笔 */
   const undoStroke = useCallback(async () => {
-    if (strokesRef.current.length === 0 || !baseRef.current) return;
+    if (strokesRef.current.length === 0 || !baseCleanRef.current) return;
     setBusy(true);
     try {
       strokesRef.current.pop();
       const cv = await loadOpenCV();
-      // 从干净底图重放
-      const working = await (async () => {
+      // 从干净底图（不含任何擦除）顺序重放剩余笔画
+      const clean = baseCleanRef.current;
+      const working = (() => {
         const c = document.createElement('canvas');
-        c.width = baseRef.current!.canvas.width;
-        c.height = baseRef.current!.canvas.height;
-        c.getContext('2d')!.drawImage(baseRef.current!.canvas, 0, 0);
+        c.width = clean.width;
+        c.height = clean.height;
+        c.getContext('2d')!.drawImage(clean, 0, 0);
         return c;
       })();
       for (const s of strokesRef.current) {
@@ -148,12 +154,12 @@ export default function EraseStage({ page }: Props) {
       strokesRef.current = [];
       setStrokeCount(0);
       useStore.getState().updatePage(page.id, { eraseMask: null }, true);
-      const base = baseRef.current;
+      const clean = baseCleanRef.current;
       const display = displayRef.current;
-      if (base && display) {
-        display.width = base.canvas.width;
-        display.height = base.canvas.height;
-        display.getContext('2d')!.drawImage(base.canvas, 0, 0);
+      if (clean && display) {
+        display.width = clean.width;
+        display.height = clean.height;
+        display.getContext('2d')!.drawImage(clean, 0, 0);
       }
       overlayRef.current?.getContext('2d')!.clearRect(0, 0, overlayRef.current!.width, overlayRef.current!.height);
       useStore.getState().toast('已清除全部擦除痕迹', 'success');
