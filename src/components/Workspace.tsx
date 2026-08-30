@@ -1,6 +1,7 @@
-import { useEffect, useState } from 'react';
+﻿import { useEffect, useState } from 'react';
 import { useStore } from '../store/useStore';
 import { useShortcuts } from '../hooks/useShortcuts';
+import { IconHome, IconUndo, IconRedo, IconScissors, IconSparkles, IconPlus, IconCamera, IconSliders } from './icons';
 import ThumbList from './ThumbList';
 import CropStage from './CropStage';
 import EnhanceStage from './EnhanceStage';
@@ -51,45 +52,49 @@ export default function Workspace() {
   return (
     <div className="h-full flex flex-col min-h-0">
       {/* ===== 顶部工具栏 ===== */}
-      <header className="flex items-center gap-1 px-2 sm:px-3 h-12 border-b border-ink-700 bg-ink-900 shrink-0">
-        <button className="btn-ghost px-2" title="返回首页" onClick={() => useStore.getState().setView('home')}>
-          🏠
+      <header className="flex items-center gap-1 px-2 sm:px-3 h-12 border-b border-ink-700 bg-gradient-to-b from-ink-900 to-[#0d131a] shrink-0">
+        <button className="btn-ghost px-2 text-slate-400 hover:text-slate-100" title="返回首页" onClick={() => useStore.getState().setView('home')}>
+          <IconHome className="w-[18px] h-[18px]" />
         </button>
-        <span className="hidden sm:inline font-semibold mr-2">智能扫描</span>
+        <span className="hidden sm:inline font-semibold mr-2 text-slate-200">智能扫描</span>
         <span className="text-xs text-slate-500 hidden md:inline">
           {pages.length} 页 · 当前 {current + 1}
         </span>
         <div className="flex-1" />
-        <button className="btn-ghost" title="撤销 (Ctrl+Z)" onClick={() => useStore.getState().undo()}>
-          ↩️
+        <button className="btn-ghost text-slate-400 hover:text-slate-100" title="撤销 (Ctrl+Z)" onClick={() => useStore.getState().undo()}>
+          <IconUndo className="w-[18px] h-[18px]" />
         </button>
-        <button className="btn-ghost" title="重做 (Ctrl+Y)" onClick={() => useStore.getState().redo()}>
-          ↪️
+        <button className="btn-ghost text-slate-400 hover:text-slate-100" title="重做 (Ctrl+Y)" onClick={() => useStore.getState().redo()}>
+          <IconRedo className="w-[18px] h-[18px]" />
         </button>
         <button
-          className="btn-ghost"
+          className="btn-ghost text-slate-400 hover:text-slate-100"
           title="批量自动裁剪"
           onClick={() => void runAutoCropAll()}
         >
-          ✂️<span className="hidden sm:inline ml-1">全部裁剪</span>
+          <IconScissors className="w-[18px] h-[18px]" />
+          <span className="hidden sm:inline ml-1">全部裁剪</span>
         </button>
         <button
-          className="btn-ghost"
+          className="btn-ghost text-slate-400 hover:text-slate-100"
           title="全部自动增强"
           onClick={() => {
             useStore.getState().autoEnhanceAll();
             useStore.getState().toast('已对全部页面应用自动增强', 'success');
           }}
         >
-          ✨<span className="hidden sm:inline ml-1">全部增强</span>
+          <IconSparkles className="w-[18px] h-[18px]" />
+          <span className="hidden sm:inline ml-1">全部增强</span>
         </button>
-        <button className="btn-ghost" title="添加图片" onClick={() => document.getElementById('ws-file-input')?.click()}>
-          ➕<span className="hidden sm:inline ml-1">添加</span>
+        <button className="btn-ghost text-slate-400 hover:text-slate-100" title="添加图片" onClick={() => document.getElementById('ws-file-input')?.click()}>
+          <IconPlus className="w-[18px] h-[18px]" />
+          <span className="hidden sm:inline ml-1">添加</span>
         </button>
-        <button className="btn-ghost" title="拍照" onClick={() => useStore.getState().setCameraOpen(true)}>
-          📷<span className="hidden sm:inline ml-1">拍照</span>
+        <button className="btn-ghost text-slate-400 hover:text-slate-100" title="拍照" onClick={() => useStore.getState().setCameraOpen(true)}>
+          <IconCamera className="w-[18px] h-[18px]" />
+          <span className="hidden sm:inline ml-1">拍照</span>
         </button>
-        <button className="btn-primary ml-1" onClick={() => setExportOpen(true)}>
+        <button className="btn-primary ml-1 rounded-lg shadow-md shadow-accent/20" onClick={() => setExportOpen(true)}>
           导出
         </button>
       </header>
@@ -99,7 +104,7 @@ export default function Workspace() {
         <ThumbList direction="vertical" className="hidden md:flex flex-col min-h-0 w-52 lg:w-60 border-r border-ink-700 bg-ink-900 overflow-y-auto landscape-hide-left" />
 
         <main className="flex-1 min-w-0 flex flex-col">
-          {/* 裁剪 / 增强 Tab */}
+          {/* 裁剪 / 增强 / 去污 Tab */}
           <div className="flex items-center gap-1 px-3 h-10 border-b border-ink-700 bg-ink-900/60 shrink-0">
             {(
               [
@@ -110,12 +115,13 @@ export default function Workspace() {
             ).map(([k, label]) => (
               <button
                 key={k}
-                className={`px-3 py-1.5 rounded-t-lg text-sm font-medium ${
-                  tab === k ? 'bg-ink-800 text-accent' : 'text-slate-400 hover:text-slate-200'
+                className={`relative px-3 py-1.5 rounded-t-lg text-sm font-medium transition-colors ${
+                  tab === k ? 'bg-ink-800 text-accent' : 'text-slate-400 hover:text-slate-200 hover:bg-ink-800/40'
                 }`}
                 onClick={() => setTab(k)}
               >
                 {label}
+                {tab === k && <span className="absolute left-2 right-2 bottom-0 h-0.5 rounded-full bg-accent" />}
               </button>
             ))}
             <div className="flex-1" />
@@ -137,16 +143,16 @@ export default function Workspace() {
         <ThumbList direction="horizontal" className="flex gap-2 overflow-x-auto px-2 py-2" />
         <div className="flex items-center gap-1 px-2 py-1.5 border-t border-ink-800 overflow-x-auto">
           <button className="btn-panel shrink-0 text-xs" onClick={() => setMobilePanel((v) => !v)}>
-            🎛️ 滤镜
+            <IconSliders className="w-3.5 h-3.5" /> 滤镜
           </button>
           <button className="btn-panel shrink-0 text-xs" onClick={() => setTab('crop')}>
-            ✂️ 裁剪
+            <IconScissors className="w-3.5 h-3.5" /> 裁剪
           </button>
           <button className="btn-panel shrink-0 text-xs" onClick={() => useStore.getState().setCameraOpen(true)}>
-            📷 拍照
+            <IconCamera className="w-3.5 h-3.5" /> 拍照
           </button>
           <button className="btn-panel shrink-0 text-xs" onClick={() => void runAutoCropAll()}>
-            ✂️ 全部裁剪
+            <IconScissors className="w-3.5 h-3.5" /> 全部裁剪
           </button>
           <div className="flex-1" />
           <button className="btn-primary shrink-0 text-xs" onClick={() => setExportOpen(true)}>

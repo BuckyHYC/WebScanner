@@ -2,6 +2,7 @@ import { useCallback, useEffect, useRef, useState } from 'react';
 import type { Page, Point } from '../types';
 import { useStore } from '../store/useStore';
 import { applyFilterToCanvas, renderGeometry } from '../utils/render';
+import { IconBrush, IconUndo, IconCheck, IconTrash, IconArrowRight } from './icons';
 
 interface Props {
   page: Page;
@@ -105,13 +106,13 @@ export default function EnhanceStage({ page, onNext }: Props) {
     <div className="h-full flex flex-col min-h-0">
       {/* 工具行（md+ 自动换行，手机横向滚动） */}
       <div className="flex items-center gap-1.5 px-2 py-1.5 shrink-0 border-b border-ink-800 bg-ink-900/40 flex-nowrap overflow-x-auto md:flex-wrap md:overflow-visible">
-        <button className={`btn-panel shrink-0 text-xs ${lasso ? '!bg-accent !text-white' : ''}`} onClick={() => { setLasso((v) => !v); setPts([]); }}>
-          ✏️ {lasso ? '退出套索' : '多边形裁剪'}
+        <button className={`btn-panel shrink-0 text-xs ${lasso ? '!bg-accent !text-white !border-accent' : ''}`} onClick={() => { setLasso((v) => !v); setPts([]); }}>
+          <IconBrush className="w-3.5 h-3.5" /> {lasso ? '退出套索' : '多边形裁剪'}
         </button>
         {lasso && (
           <>
             <button className="btn-panel shrink-0 text-xs" disabled={pts.length === 0} onClick={() => setPts((p) => p.slice(0, -1))}>
-              ↩️ 撤销点
+              <IconUndo className="w-3.5 h-3.5" /> 撤销点
             </button>
             <button
               className="btn-primary shrink-0 text-xs"
@@ -123,13 +124,13 @@ export default function EnhanceStage({ page, onNext }: Props) {
                 useStore.getState().toast('多边形裁剪已应用', 'success');
               }}
             >
-              ✅ 闭合并应用
+              <IconCheck className="w-3.5 h-3.5" /> 闭合并应用
             </button>
           </>
         )}
         {!lasso && page.polygon && (
           <button className="btn-panel shrink-0 text-xs" onClick={() => setPoly(null)}>
-            🗑️ 清除多边形
+            <IconTrash className="w-3.5 h-3.5" /> 清除多边形
           </button>
         )}
         <div className="flex-1" />
@@ -138,7 +139,8 @@ export default function EnhanceStage({ page, onNext }: Props) {
         </span>
         {onNext && (
           <button className="btn-primary shrink-0 text-xs" onClick={onNext}>
-            下一步 →
+            下一步
+            <IconArrowRight className="w-3.5 h-3.5" />
           </button>
         )}
       </div>

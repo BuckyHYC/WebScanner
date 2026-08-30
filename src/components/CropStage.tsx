@@ -4,6 +4,7 @@ import { useStore } from '../store/useStore';
 import { renderFinal, autoDetectPage, rotatedDims } from '../utils/render';
 import { loadOpenCV } from '../utils/opencvLoader';
 import { detectSkewInCanvas } from '../utils/detect';
+import { IconDetect, IconReset, IconRotateCw, IconFlipH, IconFlipV, IconDeskew, IconEye, IconArrowRight } from './icons';
 
 interface Props {
   page: Page;
@@ -405,7 +406,7 @@ export default function CropStage({ page, onNext }: Props) {
       {/* 工具行（md+ 自动换行保证按钮可见，手机横向滚动） */}
       <div className="flex items-center gap-1.5 px-2 py-1.5 shrink-0 border-b border-ink-800 bg-ink-900/40 flex-nowrap overflow-x-auto md:flex-wrap md:overflow-visible">
         <button className="btn-panel shrink-0 text-xs" onClick={() => void autoDetect()}>
-          🔍 自动检测
+          <IconDetect className="w-3.5 h-3.5 text-accent" /> 自动检测
         </button>
         <button
           className="btn-panel shrink-0 text-xs"
@@ -420,19 +421,19 @@ export default function CropStage({ page, onNext }: Props) {
             })
           }
         >
-          ♻️ 重置角点
+          <IconReset className="w-3.5 h-3.5" /> 重置角点
         </button>
         <button className="btn-panel shrink-0 text-xs" onClick={() => setProps({ rotation: (((page.rotation + 90) % 360) as 0 | 90 | 180 | 270) })}>
-          ↻ 90°
+          <IconRotateCw className="w-3.5 h-3.5" /> 90°
         </button>
         <button className="btn-panel shrink-0 text-xs" onClick={() => setProps({ flipH: !page.flipH })}>
-          ⇄ 镜像
+          <IconFlipH className="w-3.5 h-3.5" /> 镜像
         </button>
         <button className="btn-panel shrink-0 text-xs" onClick={() => setProps({ flipV: !page.flipV })}>
-          ⇅ 翻转
+          <IconFlipV className="w-3.5 h-3.5" /> 翻转
         </button>
         <button className="btn-panel shrink-0 text-xs" onClick={() => void deskew()}>
-          📐 自动摆正
+          <IconDeskew className="w-3.5 h-3.5" /> 自动摆正
         </button>
         <label className="flex items-center gap-1.5 shrink-0 text-xs text-slate-400 px-1">
           微调
@@ -458,10 +459,12 @@ export default function CropStage({ page, onNext }: Props) {
           适应
         </button>
         <button className="btn-ghost shrink-0 text-xs" onClick={() => setShowPreview((v) => !v)}>
-          {showPreview ? '👁 隐藏预览' : '👁 显示预览'}
+          <IconEye className="w-3.5 h-3.5" />
+          {showPreview ? '隐藏预览' : '显示预览'}
         </button>
         <button className="btn-primary shrink-0 text-xs" onClick={onNext}>
-          下一步 →
+          下一步
+          <IconArrowRight className="w-3.5 h-3.5" />
         </button>
       </div>
 
@@ -544,14 +547,17 @@ export default function CropStage({ page, onNext }: Props) {
         </div>
 
         {/* 操作提示 */}
-        <div className="absolute top-2 left-1/2 -translate-x-1/2 rounded-full bg-black/60 px-3 py-1 text-[11px] text-slate-300 pointer-events-none whitespace-nowrap">
+        <div className="absolute top-2 left-1/2 -translate-x-1/2 rounded-full bg-ink-950/75 border border-white/10 px-3 py-1 text-[11px] text-slate-300 pointer-events-none whitespace-nowrap">
           拖动角点调整边缘 · 滚轮/双指缩放 · 单指平移
         </div>
 
         {/* 实时矫正预览（矮屏默认隐藏，避免遮挡画布操作区） */}
         {showPreview && (
-          <div className="absolute bottom-3 right-3 rounded-lg border border-ink-600 bg-ink-900/90 p-1.5 shadow-xl">
-            <div className="text-[10px] text-slate-400 px-0.5 pb-1">矫正预览</div>
+          <div className="absolute bottom-3 right-3 rounded-xl border border-ink-600/80 bg-ink-900/90 shadow-xl shadow-black/40 p-1.5">
+            <div className="text-[10px] text-slate-400 px-0.5 pb-1 flex items-center gap-1">
+              <span className="inline-block w-1.5 h-1.5 rounded-full bg-accent" />
+              矫正预览
+            </div>
             <canvas ref={previewRef} className="max-w-[30vw] sm:max-w-[170px] max-h-[20vh] rounded bg-white object-contain" />
           </div>
         )}

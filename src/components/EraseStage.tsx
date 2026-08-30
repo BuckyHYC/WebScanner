@@ -4,6 +4,7 @@ import { useStore } from '../store/useStore';
 import { loadOpenCV } from '../utils/opencvLoader';
 import { renderGeometry } from '../utils/render';
 import { applyEraseMask, composeMask, loadImage, paintStroke } from '../utils/erase';
+import { IconBrush, IconEraser, IconUndo, IconTrash } from './icons';
 
 interface Props {
   page: Page;
@@ -256,16 +257,16 @@ export default function EraseStage({ page }: Props) {
       {/* 工具行（md+ 自动换行，手机横向滚动） */}
       <div className="flex items-center gap-1.5 px-2 py-1.5 shrink-0 border-b border-ink-800 bg-ink-900/40 flex-nowrap overflow-x-auto md:flex-wrap md:overflow-visible">
         <button
-          className={`btn-panel shrink-0 text-xs ${tool === 'brush' ? '!bg-accent !text-white' : ''}`}
+          className={`btn-panel shrink-0 text-xs gap-1.5 ${tool === 'brush' ? '!bg-accent !text-white !border-accent' : ''}`}
           onClick={() => setTool('brush')}
         >
-          🖌️ 画笔
+          <IconBrush className="w-3.5 h-3.5" /> 画笔
         </button>
         <button
-          className={`btn-panel shrink-0 text-xs ${tool === 'eraser' ? '!bg-accent !text-white' : ''}`}
+          className={`btn-panel shrink-0 text-xs gap-1.5 ${tool === 'eraser' ? '!bg-accent !text-white !border-accent' : ''}`}
           onClick={() => setTool('eraser')}
         >
-          🧽 橡皮擦
+          <IconEraser className="w-3.5 h-3.5" /> 橡皮擦
         </button>
         <label className="flex items-center gap-1.5 shrink-0 text-xs text-slate-400 px-1">
           笔径
@@ -286,14 +287,14 @@ export default function EraseStage({ page }: Props) {
           onClick={() => void undoStroke()}
           title="撤销上一笔 (Ctrl+Z)"
         >
-          ↩️ 撤销{strokeCount > 0 ? `(${strokeCount})` : ''}
+          <IconUndo className="w-3.5 h-3.5" /> 撤销{strokeCount > 0 ? `(${strokeCount})` : ''}
         </button>
         <button
           className="btn-panel shrink-0 text-xs !text-rose-300"
           disabled={busy || (!page.eraseMask && strokeCount === 0)}
           onClick={() => void resetAll()}
         >
-          🗑️ 重置擦除
+          <IconTrash className="w-3.5 h-3.5" /> 重置擦除
         </button>
       </div>
 

@@ -23,7 +23,7 @@ export default function ThumbList({ direction, className = '' }: Props) {
           key={p.id}
           className={`relative shrink-0 ${
             direction === 'vertical' ? 'w-full px-2 py-1' : 'w-20'
-          } ${i === current ? 'ring-2 ring-accent rounded-lg' : ''}`}
+          } ${i === current ? 'ring-2 ring-accent rounded-lg shadow-lg shadow-black/30' : ''}`}
           draggable={direction === 'vertical'}
           onDragStart={(e) => {
             dragFrom.current = i;
@@ -50,14 +50,14 @@ export default function ThumbList({ direction, className = '' }: Props) {
             <img
               src={p.thumb}
               alt={p.name}
-              className={`rounded-md border border-ink-600 object-cover bg-white/5 ${
+              className={`rounded-md border border-ink-600 object-cover bg-white/5 transition-colors group-hover:border-ink-700 ${
                 direction === 'vertical' ? 'w-full h-28' : 'w-20 h-28'
               }`}
             />
-            <span className="absolute top-1 left-1 rounded bg-black/70 px-1.5 text-[10px] leading-4 text-slate-200">
+            <span className="absolute top-1 left-1 rounded bg-ink-950/85 border border-white/10 px-1.5 text-[10px] leading-4 text-slate-200">
               {i + 1}
             </span>
-            <span className="absolute bottom-1 left-1 rounded bg-accent/90 px-1.5 text-[10px] leading-4 text-white">
+            <span className="absolute bottom-1 left-1 rounded bg-accent px-1.5 text-[10px] leading-4 text-white shadow-sm shadow-accent/40">
               {p.filterName}
             </span>
             {/* 操作按钮 */}
@@ -67,7 +67,7 @@ export default function ThumbList({ direction, className = '' }: Props) {
               } transition-opacity`}
             >
               <button
-                className="rounded bg-black/70 w-5 h-5 text-[10px] leading-5 text-slate-200 hover:bg-ink-600"
+                className="rounded bg-ink-950/85 border border-white/10 w-5 h-5 text-[10px] leading-5 text-slate-200 hover:border-accent hover:text-accent"
                 title="复制页"
                 onClick={(e) => {
                   e.stopPropagation();
@@ -77,7 +77,7 @@ export default function ThumbList({ direction, className = '' }: Props) {
                 ⧉
               </button>
               <button
-                className="rounded bg-black/70 w-5 h-5 text-[10px] leading-5 text-rose-300 hover:bg-rose-900"
+                className="rounded bg-ink-950/85 border border-white/10 w-5 h-5 text-[10px] leading-5 text-rose-300 hover:border-rose-500 hover:bg-rose-950/60"
                 title="删除页"
                 onClick={(e) => {
                   e.stopPropagation();
@@ -91,7 +91,7 @@ export default function ThumbList({ direction, className = '' }: Props) {
             {direction === 'vertical' && (
               <div className="absolute bottom-1 right-1 flex gap-0.5 opacity-0 group-hover:opacity-100 transition-opacity">
                 <button
-                  className="rounded bg-black/70 w-5 h-5 text-[10px] leading-5 hover:bg-ink-600 disabled:opacity-30"
+                  className="rounded bg-ink-950/85 border border-white/10 w-5 h-5 text-[10px] leading-5 hover:border-accent hover:text-accent disabled:opacity-30"
                   disabled={i === 0}
                   title="前移"
                   onClick={(e) => {

@@ -1,5 +1,6 @@
 import type { FilterMode, FilterState, Page } from '../types';
 import { defaultFilter, filterLabel, useStore } from '../store/useStore';
+import { IconImage, IconSparkles, IconDroplet, IconContrast, IconGridDoc, IconCamera, IconReset, IconCopy } from './icons';
 
 interface Props {
   page: Page;
@@ -52,13 +53,13 @@ function slidersFor(mode: FilterMode): SliderDef[] {
 }
 
 const MODES: FilterMode[] = ['original', 'magic', 'color', 'gray', 'bw', 'photo'];
-const MODE_ICONS: Record<FilterMode, string> = {
-  original: '🖼️',
-  magic: '✨',
-  color: '🌈',
-  gray: '🌗',
-  bw: '📄',
-  photo: '📷',
+const MODE_ICONS: Record<FilterMode, (p: { className?: string }) => JSX.Element> = {
+  original: (p) => <IconImage className="w-5 h-5" {...p} />,
+  magic: (p) => <IconSparkles className="w-5 h-5" {...p} />,
+  color: (p) => <IconDroplet className="w-5 h-5" {...p} />,
+  gray: (p) => <IconContrast className="w-5 h-5" {...p} />,
+  bw: (p) => <IconGridDoc className="w-5 h-5" {...p} />,
+  photo: (p) => <IconCamera className="w-5 h-5" {...p} />,
 };
 
 export default function FilterPanel({ page, className = '', onDone }: Props) {
@@ -90,14 +91,14 @@ export default function FilterPanel({ page, className = '', onDone }: Props) {
         {MODES.map((m) => (
           <button
             key={m}
-            className={`rounded-lg py-2.5 text-xs flex flex-col items-center gap-1 border transition-colors ${
+            className={`rounded-lg py-2.5 text-xs flex flex-col items-center gap-1.5 border transition-colors ${
               f.mode === m
                 ? 'border-accent bg-accent/15 text-accent'
-                : 'border-ink-600 bg-ink-800 text-slate-300 hover:border-ink-600 hover:bg-ink-700'
+                : 'border-ink-600 bg-ink-800 text-slate-300 hover:border-ink-700 hover:bg-ink-700'
             }`}
             onClick={() => applyMode(m)}
           >
-            <span className="text-lg leading-none">{MODE_ICONS[m]}</span>
+            {MODE_ICONS[m]({})}
             {filterLabel(m)}
           </button>
         ))}
@@ -135,7 +136,7 @@ export default function FilterPanel({ page, className = '', onDone }: Props) {
             useStore.getState().updatePage(page.id, { filterName: '原图' }, false);
           }}
         >
-          ♻️ 重置本页参数
+          <IconReset className="w-3.5 h-3.5" /> 重置本页参数
         </button>
         <button
           className="btn-panel text-xs"
@@ -144,9 +145,8 @@ export default function FilterPanel({ page, className = '', onDone }: Props) {
             useStore.getState().toast('已将当前页滤镜设置同步到全部页面', 'success');
           }}
         >
-          📚 应用当前设置到所有页面
-        </button>
-      </div>
+          <IconCopy className="w-3.5 h-3.5" /> 应用当前设置到所有页面
+        </button>      </div>
     </div>
   );
 }

@@ -38,9 +38,24 @@ export default function App() {
         saveDraft(s.pages).catch(() => {});
       }, 1500);
     });
+
+    // 移动端杀后台/切后台前立即落盘最新草稿（防抖可能来不及触发）
+    const flush = () => {
+      clearTimeout(timer);
+      const pages = useStore.getState().pages;
+      if (pages.length > 0) void saveDraft(pages);
+    };
+    const onVis = () => {
+      if (document.visibilityState === 'hidden') flush();
+    };
+    window.addEventListener('beforeunload', flush);
+    document.addEventListener('visibilitychange', onVis);
+
     return () => {
       unsub();
       clearTimeout(timer);
+      window.removeEventListener('beforeunload', flush);
+      document.removeEventListener('visibilitychange', onVis);
     };
   }, []);
 

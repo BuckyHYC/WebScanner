@@ -3,6 +3,7 @@ import type { ExportOptions, Page, PdfSize, Quality } from '../types';
 import { useStore } from '../store/useStore';
 import { downloadBlob, exportJpgDirectly, exportJpgZip, exportPdf, exportSingleJpg } from '../utils/exporter';
 import { renderFinal } from '../utils/render';
+import { IconDoc, IconImage, IconEye, IconDownload } from './icons';
 
 interface Props {
   onClose: () => void;
@@ -87,17 +88,20 @@ export default function ExportDialog({ onClose }: Props) {
         <div className="grid grid-cols-2 gap-2">
           {(
             [
-              ['pdf', '📄 PDF 文档'],
-              ['jpg', '🖼️ JPG 图片'],
+              ['pdf', 'PDF 文档'],
+              ['jpg', 'JPG 图片'],
             ] as const
           ).map(([k, label]) => (
             <button
               key={k}
-              className={`rounded-lg py-2.5 text-sm border ${
-                opts.format === k ? 'border-accent bg-accent/15 text-accent' : 'border-ink-600 bg-ink-800 text-slate-300'
+              className={`rounded-lg py-2.5 text-sm border flex items-center justify-center gap-2 transition-colors ${
+                opts.format === k
+                  ? 'border-accent bg-accent/15 text-accent'
+                  : 'border-ink-600 bg-ink-800 text-slate-300 hover:border-ink-700 hover:bg-ink-700'
               }`}
               onClick={() => set('format', k)}
             >
+              {k === 'pdf' ? <IconDoc className="w-4 h-4" /> : <IconImage className="w-4 h-4" />}
               {label}
             </button>
           ))}
@@ -219,10 +223,10 @@ export default function ExportDialog({ onClose }: Props) {
 
         <div className="flex gap-2 pt-1">
           <button className="btn-panel flex-1" disabled={running || targets.length === 0} onClick={() => setPreviewOpen(true)}>
-            👁 导出前预览
+            <IconEye className="w-4 h-4" /> 导出前预览
           </button>
           <button className="btn-primary flex-1" disabled={running || targets.length === 0} onClick={() => void run()}>
-            ⬇️ 导出（{targets.length} 页）
+            <IconDownload className="w-4 h-4" /> 导出（{targets.length} 页）
           </button>
         </div>
 
