@@ -6,7 +6,7 @@ import { openEditorRoute } from '../utils/router';
 import type { DraftMeta } from '../types';
 import DraftCard from './DraftCard';
 import ConfirmModal from './ConfirmModal';
-import { IconImage, IconCamera, IconTrash } from './icons';
+import { IconImage, IconCamera, IconTrash, IconChevronDown } from './icons';
 
 /* ===== 内联 SVG 图标（统一 1.7 描边风格）===== */
 const IconLock = ({ className = 'w-5 h-5' }) => (
@@ -17,12 +17,9 @@ const IconLock = ({ className = 'w-5 h-5' }) => (
 );
 
 /** 签名视觉：文档取景框 + 扫描线（呼应边缘检测核心） */
-function ViewFinder({ compact = false }: { compact?: boolean }) {
+function ViewFinder() {
   return (
-    <div
-      className={`relative ${compact ? 'w-36 h-24 sm:w-44 sm:h-[7.5rem]' : 'w-56 h-40 sm:w-64 sm:h-44'}`}
-      aria-hidden="true"
-    >
+    <div className="relative w-56 h-40 sm:w-64 sm:h-44" aria-hidden="true">
       <svg viewBox="0 0 100 100" preserveAspectRatio="none" fill="none" className="absolute inset-0 w-full h-full">
         {/* 四角取景角标 */}
         <path d="M6 26V12a6 6 0 0 1 6-6h14" stroke="#2f81f7" strokeWidth="1.6" strokeLinecap="round" />
@@ -52,8 +49,9 @@ interface ConfirmState {
 }
 
 /**
- * 首页：无草稿时保持原空状态布局；有草稿时顶部压缩 hero，
- * 向下滚动展示草稿列表（updatedAt 倒序）。
+ * 首页：无草稿时保持原空状态布局；有草稿时 hero 保持原大小，
+ * 手机端占满首屏（「选择图片」位于屏幕中线，下方提示下滑查看草稿），
+ * 草稿列表随页面滚动展示（updatedAt 倒序）。
  */
 export default function Home() {
   const inputRef = useRef<HTMLInputElement>(null);
@@ -146,55 +144,67 @@ export default function Home() {
   };
 
   /* ===== 视图 ===== */
-  const btnSize = hasDrafts ? 'px-6 py-2.5 text-sm' : 'px-8 py-3.5 text-base';
 
   return (
     <div className="h-full overflow-y-auto">
-      {/* ===== Hero：新建区 ===== */}
+      {/* ===== Hero：新建区 =====
+          手机端（有草稿）：占满首屏，「选择图片」按钮位于屏幕中线，下方提示下滑查看草稿；
+          PC（有草稿）：原大小常规置顶排布，草稿区紧随其后；空态：整体居中。 */}
       <div
         className={
           hasDrafts
-            ? 'flex flex-col items-center gap-4 px-6 pt-8 pb-4'
+            ? 'min-h-[100dvh] sm:min-h-0 flex flex-col items-center px-6 pb-10 sm:pt-14 sm:pb-8'
             : 'h-full flex flex-col items-center justify-center gap-7 px-6 py-8'
         }
       >
-        <div className="flex flex-col items-center gap-4">
-          <ViewFinder compact={hasDrafts} />
+        {/* 动画 + 标题：手机端贴首屏中线（min-h 锚定 50dvh - 半按钮高，使「选择图片」中心落屏幕正中） */}
+        <div
+          className={
+            hasDrafts
+              ? 'min-h-[calc(50dvh-26px)] flex flex-col items-center justify-end gap-4 sm:min-h-0 sm:flex-none sm:justify-start sm:gap-5'
+              : 'flex flex-col items-center gap-5'
+          }
+        >
+          <ViewFinder />
           <div className="text-center">
-            <h1
-              className={`font-extrabold tracking-tight text-slate-100 ${
-                hasDrafts ? 'text-3xl sm:text-4xl' : 'text-5xl sm:text-6xl'
-              }`}
-            >
+            <h1 className="text-5xl sm:text-6xl font-extrabold tracking-tight text-slate-100">
               智能<span className="text-accent">扫描</span>
             </h1>
-            <p className={`text-slate-400 tracking-wide ${hasDrafts ? 'mt-2 text-xs sm:text-sm' : 'mt-4 text-sm sm:text-base'}`}>
+            <p className="mt-4 text-sm sm:text-base text-slate-400 tracking-wide">
               边缘检测 · 透视矫正 · 滤镜增强 · 导出 PDF/JPG
             </p>
-            <p className="mt-1.5 text-[11px] sm:text-xs text-slate-500 flex items-center justify-center gap-1.5">
+            <p className="mt-2 text-xs sm:text-sm text-slate-500 flex items-center justify-center gap-1.5">
               <IconLock className="w-3.5 h-3.5" />
               全程本地处理，图片不会上传
             </p>
           </div>
         </div>
 
-        {/* 主操作：新建草稿入口 */}
+        {/* 主操作：新建草稿入口（手机端位于屏幕正中） */}
         <div className="flex flex-col sm:flex-row items-stretch sm:items-center gap-3 w-full max-w-md sm:w-auto">
           <button
-            className={`btn-primary ${btnSize} rounded-xl shadow-lg shadow-accent/25 focus-visible:ring-2 focus-visible:ring-accent focus-visible:ring-offset-2 focus-visible:ring-offset-ink-950`}
+            className="btn-primary px-8 py-3.5 text-base rounded-xl shadow-lg shadow-accent/25 focus-visible:ring-2 focus-visible:ring-accent focus-visible:ring-offset-2 focus-visible:ring-offset-ink-950"
             onClick={() => inputRef.current?.click()}
           >
             <IconImage className="w-[18px] h-[18px]" />
             选择图片
           </button>
           <button
-            className={`btn ${btnSize} rounded-xl border border-accent/60 text-accent hover:bg-accent/10 focus-visible:ring-2 focus-visible:ring-accent focus-visible:ring-offset-2 focus-visible:ring-offset-ink-950`}
+            className="btn px-8 py-3.5 text-base rounded-xl border border-accent/60 text-accent hover:bg-accent/10 focus-visible:ring-2 focus-visible:ring-accent focus-visible:ring-offset-2 focus-visible:ring-offset-ink-950"
             onClick={() => setCameraOpen(true)}
           >
             <IconCamera className="w-[18px] h-[18px]" />
             拍照扫描
           </button>
         </div>
+
+        {/* 手机端滚动提示（hero 占满首屏，提示草稿在下方） */}
+        {hasDrafts && (
+          <div className="flex-1 flex flex-col items-center justify-start pt-7 sm:hidden">
+            <span className="text-xs text-slate-500">下滑查看 {drafts.length} 个草稿</span>
+            <IconChevronDown className="w-4 h-4 text-slate-500 animate-bounce motion-reduce:animate-none" />
+          </div>
+        )}
 
         {/* 支持格式与导入方式（仅空态展示，保持原有信息层级） */}
         {!hasDrafts && (
