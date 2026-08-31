@@ -130,7 +130,7 @@ input[type='range']::-moz-range-thumb {
 /* ===== 首页取景框扫描线 ===== */
 @keyframes scan-sweep {
   0% {
-    transform: translateY(0);
+    top: 8%;
     opacity: 0;
   }
   8% {
@@ -140,11 +140,12 @@ input[type='range']::-moz-range-thumb {
     opacity: 1;
   }
   100% {
-    transform: translateY(150px);
+    top: 88%;
     opacity: 0;
   }
 }
 .scan-line {
+  top: 8%;
   animation: scan-sweep 2.8s cubic-bezier(0.45, 0, 0.55, 1) infinite;
 }
 @media (prefers-reduced-motion: reduce) {

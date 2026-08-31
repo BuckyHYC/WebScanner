@@ -61,13 +61,15 @@ try {
       btnCenter: r ? r.top + r.height / 2 : null,
       btnH: r?.height ?? null,
       vfW: vf ? Math.round(vf.getBoundingClientRect().width) : null,
+      vfH: vf ? Math.round(vf.getBoundingClientRect().height) : null,
       heroH: hero ? Math.round(hero.getBoundingClientRect().height) : null,
       viewportH: window.innerHeight,
     };
   });
   ok(metrics.viewportH > 0, '视口就绪');
   ok(Math.abs(metrics.heroH - metrics.viewportH) <= 40, 'hero 占满手机首屏', `hero=${metrics.heroH} vs 视口=${metrics.viewportH}`);
-  ok(metrics.vfW >= 220, '取景框动画保持原大小', `宽=${metrics.vfW}px`);
+  ok(metrics.vfH > metrics.vfW, '取景框文档为纵向（不扁）', `${metrics.vfW}x${metrics.vfH}px`);
+  ok(metrics.vfH >= 200, '取景框文档大小协调', `高=${metrics.vfH}px`);
   ok(
     metrics.btnCenter !== null && Math.abs(metrics.btnCenter - metrics.viewportH / 2) <= 60,
     '「选择图片」按钮位于屏幕正中',

@@ -16,26 +16,26 @@ const IconLock = ({ className = 'w-5 h-5' }) => (
   </svg>
 );
 
-/** 签名视觉：文档取景框 + 扫描线（呼应边缘检测核心） */
+/** 签名视觉：文档取景框 + 扫描线（呼应边缘检测核心）——纵向文档比例，避免拉伸变扁 */
 function ViewFinder() {
   return (
-    <div className="relative w-56 h-40 sm:w-64 sm:h-44" aria-hidden="true">
-      <svg viewBox="0 0 100 100" preserveAspectRatio="none" fill="none" className="absolute inset-0 w-full h-full">
-        {/* 四角取景角标 */}
-        <path d="M6 26V12a6 6 0 0 1 6-6h14" stroke="#2f81f7" strokeWidth="1.6" strokeLinecap="round" />
-        <path d="M74 6h14a6 6 0 0 1 6 6v14" stroke="#2f81f7" strokeWidth="1.6" strokeLinecap="round" />
-        <path d="M94 74v14a6 6 0 0 1-6 6H74" stroke="#2f81f7" strokeWidth="1.6" strokeLinecap="round" />
-        <path d="M26 94H12a6 6 0 0 1-6-6V74" stroke="#2f81f7" strokeWidth="1.6" strokeLinecap="round" />
+    <div className="relative w-44 h-56 sm:w-48 sm:h-64" aria-hidden="true">
+      <svg viewBox="0 0 100 128" preserveAspectRatio="none" fill="none" className="absolute inset-0 w-full h-full">
+        {/* 四角取景角标（纵向文档，x∈[10,90]、y∈[14,114]） */}
+        <path d="M10 28V20a6 6 0 0 1 6-6h16" stroke="#2f81f7" strokeWidth="1.6" strokeLinecap="round" />
+        <path d="M74 14h16a6 6 0 0 1 6 6v14" stroke="#2f81f7" strokeWidth="1.6" strokeLinecap="round" />
+        <path d="M96 100v14a6 6 0 0 1-6 6H74" stroke="#2f81f7" strokeWidth="1.6" strokeLinecap="round" />
+        <path d="M30 120H16a6 6 0 0 1-6-6v-14" stroke="#2f81f7" strokeWidth="1.6" strokeLinecap="round" />
         {/* 文档内容横线 */}
         <path
-          d="M24 34h30M24 45h52M24 56h38M24 67h48M24 78h26"
+          d="M22 38h30M22 52h52M22 66h44M22 80h50M22 94h32M22 108h20"
           stroke="#31405a"
           strokeWidth="2.4"
           strokeLinecap="round"
         />
       </svg>
       {/* 扫描线 */}
-      <div className="scan-line absolute left-[8%] right-[8%] top-[10%] h-[2px] rounded-full bg-accent/80 shadow-[0_1px_10px_rgba(47,129,247,0.9)]" />
+      <div className="scan-line absolute left-[10%] right-[10%] h-[2px] rounded-full bg-accent/80 shadow-[0_1px_10px_rgba(47,129,247,0.9)]" />
     </div>
   );
 }
