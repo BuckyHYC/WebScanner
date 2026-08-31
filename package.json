@@ -14,6 +14,7 @@
   },
   "dependencies": {
     "@techstark/opencv-js": "^4.12.0-release.1",
+    "dexie": "^4.4.5",
     "heic2any": "^0.0.4",
     "jszip": "^3.10.1",
     "pdf-lib": "^1.17.1",

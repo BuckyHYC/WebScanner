@@ -51,6 +51,18 @@ export interface Page {
   eraseMask?: string | null;
 }
 
+/** 草稿元信息（首页列表用，页面数据另存 pages 表） */
+export interface DraftMeta {
+  id: number;
+  name: string;
+  createdAt: number;
+  updatedAt: number;
+  /** 页面顺序（pageId 列表） */
+  pageOrder: string[];
+  /** 首页缩略图 dataURL（无页面时为 null） */
+  coverThumb: string | null;
+}
+
 export interface Toast {
   id: number;
   text: string;

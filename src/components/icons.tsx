@@ -241,3 +241,9 @@ export const IconCheck = (p: IconProps) => (
     <path d="M4 12.5l5 5L20 6.5" />
   </Svg>
 );
+
+export const IconBack = (p: IconProps) => (
+  <Svg {...p}>
+    <path d="M15 5l-7 7 7 7" />
+  </Svg>
+);

@@ -1,12 +1,72 @@
 import { useEffect, useRef, useState } from 'react';
 import { useStore } from './store/useStore';
 import { importFiles } from './utils/importer';
-import { loadDraft, saveDraft } from './utils/idb';
 import { loadOpenCV } from './utils/opencvLoader';
+import { getDraft, migrateLegacyDraft, openDraft } from './utils/draftsDb';
+import { flushSave, notePages, resetSyncBaseline } from './utils/draftSync';
+import type { Route } from './utils/router';
+import { goHome, parseRoute, watchRoute } from './utils/router';
 import Home from './components/Home';
 import Workspace from './components/Workspace';
 import CameraView from './components/CameraView';
 import CvProgressBar from './components/CvProgressBar';
+
+/** 路由处理序号守卫：快速切换路由时丢弃过期加载结果 */
+let routeSeq = 0;
+
+/** 路由处理：进入编辑页加载草稿；回首页 flush 保存并清空编辑态 */
+async function handleRoute(r: Route) {
+  const seq = ++routeSeq;
+  const s = useStore.getState();
+  if (r.view === 'editor') {
+    if (s.draftId === r.draftId) {
+      if (s.view !== 'editor') useStore.setState({ view: 'editor' });
+      return;
+    }
+    const meta = await getDraft(r.draftId);
+    if (seq !== routeSeq) return;
+    if (!meta) {
+      useStore.getState().toast('草稿不存在或已被删除');
+      goHome();
+      return;
+    }
+    const pages = await openDraft(r.draftId);
+    if (seq !== routeSeq) return;
+    if (!pages) {
+      useStore.getState().toast('草稿不存在或已被删除');
+      goHome();
+      return;
+    }
+    resetSyncBaseline(pages);
+    useStore.setState({
+      view: 'editor',
+      draftId: r.draftId,
+      draftName: meta.name,
+      pages,
+      current: 0,
+      past: [],
+      future: [],
+    });
+    return;
+  }
+  // home：离开编辑页时立即快照保存（后台完成后再刷新列表，更新时间与封面）
+  if (s.draftId !== null) {
+    void flushSave()
+      .catch(() => {})
+      .finally(() => void useStore.getState().refreshDrafts());
+  } else {
+    void useStore.getState().refreshDrafts();
+  }
+  useStore.setState({
+    view: 'home',
+    draftId: null,
+    draftName: '',
+    pages: [],
+    current: 0,
+    past: [],
+    future: [],
+  });
+}
 
 export default function App() {
   const view = useStore((s) => s.view);
@@ -16,51 +76,49 @@ export default function App() {
   const cameraOpen = useStore((s) => s.cameraOpen);
   const dragDepth = useRef(0);
   const [dragging, setDragging] = useState(false);
-  const [draftRestored, setDraftRestored] = useState(false);
 
-  // 启动：后台预热 OpenCV + 恢复草稿 + 草稿自动保存
+  // 启动：后台预热 OpenCV + 旧单草稿迁移 + 初始路由 + 监听路由变化
   useEffect(() => {
     loadOpenCV().catch(() => {
       /* 首次用到算法时会再次尝试 */
     });
 
+    let disposed = false;
     (async () => {
-      const draft = await loadDraft();
-      if (draft && draft.length > 0) {
-        // 恢复草稿后默认停在首页（用户点「继续编辑」再进编辑器），
-        // 首页会显示草稿提示条与「继续编辑（N 页）」入口
-        useStore.setState({ pages: draft, view: 'home' });
-        setDraftRestored(true);
-      }
+      await migrateLegacyDraft();
+      if (disposed) return;
+      await handleRoute(parseRoute());
     })();
 
-    let timer: ReturnType<typeof setTimeout> | undefined;
-    // 仅订阅 pages 引用变化：toast/切页/导出状态等非 pages 变化不再触发草稿全量重写
+    const unwatch = watchRoute((r) => void handleRoute(r));
+    return () => {
+      disposed = true;
+      unwatch();
+    };
+  }, []);
+
+  // 草稿自动保存：pages 引用变化 → 800ms 防抖差量落盘（draftId 非空即在编辑态）
+  useEffect(() => {
     const unsub = useStore.subscribe(
       (s) => s.pages,
       (pages) => {
-        clearTimeout(timer);
-        timer = setTimeout(() => {
-          saveDraft(pages).catch(() => {});
-        }, 1500);
+        if (useStore.getState().draftId !== null) notePages(pages);
       },
     );
+    return unsub;
+  }, []);
 
-    // 移动端杀后台/切后台前立即落盘最新草稿（防抖可能来不及触发）
+  // 移动端杀后台/切后台/关闭前立即落盘（防抖可能来不及触发）
+  useEffect(() => {
     const flush = () => {
-      clearTimeout(timer);
-      const pages = useStore.getState().pages;
-      if (pages.length > 0) void saveDraft(pages);
+      void flushSave();
     };
     const onVis = () => {
       if (document.visibilityState === 'hidden') flush();
     };
     window.addEventListener('beforeunload', flush);
     document.addEventListener('visibilitychange', onVis);
-
     return () => {
-      unsub();
-      clearTimeout(timer);
       window.removeEventListener('beforeunload', flush);
       document.removeEventListener('visibilitychange', onVis);
     };
@@ -112,7 +170,7 @@ export default function App() {
 
   return (
     <div className="h-full min-h-0">
-      {view === 'home' ? <Home draftRestored={draftRestored} onDraftSeen={() => setDraftRestored(false)} /> : <Workspace />}
+      {view === 'home' ? <Home /> : <Workspace />}
 
       {cameraOpen && <CameraView />}
 

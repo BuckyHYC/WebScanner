@@ -1,7 +1,7 @@
 import { useEffect, useRef, useState } from 'react';
 import { useStore } from '../store/useStore';
 import { useShortcuts } from '../hooks/useShortcuts';
-import { IconHome, IconUndo, IconRedo, IconScissors, IconSparkles, IconPlus, IconCamera, IconSliders } from './icons';
+import { IconUndo, IconRedo, IconScissors, IconSparkles, IconPlus, IconCamera, IconSliders, IconBack } from './icons';
 import ThumbList from './ThumbList';
 import CropStage from './CropStage';
 import EnhanceStage from './EnhanceStage';
@@ -10,6 +10,9 @@ import FilterPanel from './FilterPanel';
 import ExportDialog from './ExportDialog';
 import { importFiles } from '../utils/importer';
 import { autoDetectPage } from '../utils/render';
+import { deleteDrafts } from '../utils/draftsDb';
+import { resetSyncBaseline, flushSave } from '../utils/draftSync';
+import { goHome, goBack } from '../utils/router';
 import type { Page } from '../types';
 
 /** 批量自动裁剪：逐页重测角点（共享一段历史快照） */
@@ -34,6 +37,7 @@ async function runAutoCropAll() {
 export default function Workspace() {
   const pages = useStore((s) => s.pages);
   const current = useStore((s) => s.current);
+  const draftName = useStore((s) => s.draftName);
   const [tab, setTab] = useState<'crop' | 'enhance' | 'erase'>('crop');
   const [exportOpen, setExportOpen] = useState(false);
   const [mobilePanel, setMobilePanel] = useState(false);
@@ -41,9 +45,18 @@ export default function Workspace() {
 
   useShortcuts();
 
-  // 无页面时回首页
+  // 页面删光：空草稿无保留意义，删除并回首页
   useEffect(() => {
-    if (pages.length === 0) useStore.getState().setView('home');
+    if (pages.length === 0) {
+      const { draftId, view } = useStore.getState();
+      if (view === 'editor' && draftId !== null) {
+        useStore.setState({ draftId: null });
+        resetSyncBaseline([]);
+        void deleteDrafts([draftId])
+          .catch(() => {})
+          .finally(() => goHome());
+      }
+    }
   }, [pages.length]);
 
   if (!page) return null;
@@ -52,10 +65,22 @@ export default function Workspace() {
     <div className="h-full flex flex-col min-h-0">
       {/* ===== 顶部工具栏 ===== */}
       <header className="flex items-center gap-1 px-2 sm:px-3 h-12 border-b border-ink-700 bg-gradient-to-b from-ink-900 to-[#0d131a] shrink-0">
-        <button className="btn-ghost px-2 text-slate-400 hover:text-slate-100" title="返回首页" onClick={() => useStore.getState().setView('home')}>
-          <IconHome className="w-[18px] h-[18px]" />
+        <button
+          className="btn-ghost px-2 text-slate-400 hover:text-slate-100"
+          title="返回首页"
+          onClick={() => {
+            void flushSave();
+            goBack();
+          }}
+        >
+          <IconBack className="w-[18px] h-[18px]" />
         </button>
-        <span className="hidden sm:inline font-semibold mr-2 text-slate-200">智能扫描</span>
+        <span
+          className="hidden sm:inline font-semibold mr-2 text-slate-200 truncate max-w-[9rem] lg:max-w-[16rem]"
+          title={draftName}
+        >
+          {draftName || '智能扫描'}
+        </span>
         <span className="text-xs text-slate-500 hidden md:inline">
           {pages.length} 页 · 当前 {current + 1}
         </span>
@@ -213,6 +238,7 @@ function PageNameEditor({ page }: { page: Page }) {
     return (
       <input
         autoFocus
+        onFocus={(e) => e.currentTarget.select()}
         className="w-28 sm:w-40 min-w-0 bg-ink-800 border border-accent/60 rounded px-1.5 py-0.5 text-xs text-slate-200 outline-none"
         value={draft}
         onChange={(e) => setDraft(e.target.value)}

@@ -1,7 +1,8 @@
 import { create } from 'zustand';
 import { subscribeWithSelector } from 'zustand/middleware';
-import type { FilterState, Page, Point, Toast } from '../types';
+import type { DraftMeta, FilterState, Page, Point, Toast } from '../types';
 import { uid } from '../utils/uid';
+import { listDrafts } from '../utils/draftsDb';
 
 /** 新建默认滤镜参数 */
 export function defaultFilter(mode: FilterState['mode'] = 'original'): FilterState {
@@ -25,6 +26,12 @@ type Snapshot = { pages: Page[] };
 
 interface Store {
   view: 'home' | 'editor';
+  /** 当前编辑的草稿 id（home 视图下为 null） */
+  draftId: number | null;
+  /** 当前草稿名（编辑页顶栏 / 导出默认名） */
+  draftName: string;
+  /** 首页草稿列表（updatedAt 倒序，由 draftsDb 读取） */
+  drafts: DraftMeta[];
   pages: Page[];
   current: number; // 当前编辑页索引
   past: Snapshot[];
@@ -37,6 +44,7 @@ interface Store {
 
   setView: (v: 'home' | 'editor') => void;
   setCameraOpen: (open: boolean) => void;
+  refreshDrafts: () => Promise<void>;
   addPages: (ps: Page[], selectFirst?: boolean) => void;
   insertPage: (index: number, p: Page) => void;
   removePage: (index: number) => void;
@@ -63,6 +71,9 @@ let toastSeq = 1;
 
 export const useStore = create<Store>()(subscribeWithSelector((set, get) => ({
   view: 'home',
+  draftId: null,
+  draftName: '',
+  drafts: [],
   pages: [],
   current: 0,
   past: [],
@@ -74,6 +85,15 @@ export const useStore = create<Store>()(subscribeWithSelector((set, get) => ({
 
   setView: (v) => set({ view: v }),
   setCameraOpen: (open) => set({ cameraOpen: open }),
+
+  refreshDrafts: async () => {
+    try {
+      const drafts = await listDrafts();
+      set({ drafts });
+    } catch (e) {
+      console.warn('读取草稿列表失败', e);
+    }
+  },
 
   addPages: (ps, selectFirst = false) =>
     set((s) => ({

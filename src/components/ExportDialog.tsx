@@ -3,6 +3,7 @@ import type { ExportOptions, Page, PdfSize, Quality } from '../types';
 import { useStore } from '../store/useStore';
 import { downloadBlob, exportImagesDirectly, exportImagesZip, exportPdf, exportSingleImage } from '../utils/exporter';
 import { renderFinal } from '../utils/render';
+import { DEFAULT_DRAFT_NAME, renameDraft } from '../utils/draftsDb';
 import { IconDoc, IconImage, IconEye, IconDownload } from './icons';
 
 interface Props {
@@ -16,13 +17,15 @@ export default function ExportDialog({ onClose }: Props) {
     // 全部页面为黑白模式时建议默认 PNG 无损（黑白二值图 JPEG 压缩伪影明显且体积更大）
     const ps = useStore.getState().pages;
     const allBw = ps.length > 0 && ps.every((p) => p.filter.mode === 'bw');
+    // 草稿已命名时用草稿名做默认前缀
+    const dn = useStore.getState().draftName;
     return {
       format: allBw ? 'png' : 'pdf',
       pageIds: 'all',
       pdfSize: 'a4',
       quality: 'high',
       jpgQuality: 92,
-      prefix: 'Scan',
+      prefix: dn && dn !== DEFAULT_DRAFT_NAME ? dn : 'Scan',
       title: '',
       author: '',
     };
@@ -80,6 +83,19 @@ export default function ExportDialog({ onClose }: Props) {
       }
       s.toast('导出完成，已开始下载', 'success');
       onClose();
+      // 首次导出时用文件名前缀给未命名草稿命名（PRD：名称默认「未命名文档」或首次导出时的文件名）
+      const st = useStore.getState();
+      if (st.draftId !== null && (!st.draftName || st.draftName === DEFAULT_DRAFT_NAME)) {
+        const name = (opts.prefix || 'Scan').trim();
+        if (name) {
+          try {
+            await renameDraft(st.draftId, name);
+            useStore.setState({ draftName: name });
+          } catch {
+            /* 命名失败不影响导出结果 */
+          }
+        }
+      }
     } catch (e) {
       if ((e as DOMException)?.name === 'AbortError') {
         s.toast('已取消导出');

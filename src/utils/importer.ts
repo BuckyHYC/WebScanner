@@ -4,6 +4,9 @@ import { decodeImageFiles } from './imageIO';
 import type { DecodedImage } from './imageIO';
 import { autoDetectPage } from './render';
 import { uid } from './uid';
+import { createDraft, DEFAULT_DRAFT_NAME } from './draftsDb';
+import { resetSyncBaseline } from './draftSync';
+import { openEditorRoute } from './router';
 
 /** 构造 Page 对象 */
 function toPage(base: DecodedImage, id: string, index: number): Page {
@@ -56,6 +59,14 @@ export async function importFiles(files: File[], insertAt?: number) {
   }
   if (newPages.length === 0) return;
   if (insertAt === undefined) {
+    const st = useStore.getState();
+    if (st.draftId === null) {
+      // 首页导入（选择图片/粘贴/拖拽/拍照首张）：新建草稿并进入编辑页
+      const id = await createDraft();
+      useStore.setState({ draftId: id, draftName: DEFAULT_DRAFT_NAME });
+      resetSyncBaseline([]);
+      openEditorRoute(id);
+    }
     useStore.getState().addPages(newPages);
   } else {
     // 指定位置插入：逐个 splice
