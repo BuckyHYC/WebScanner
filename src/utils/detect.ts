@@ -401,27 +401,142 @@ function strategyCorners(cv: any, pool: ReturnType<typeof createMatPool>, gray: 
   return { quad: null, corners: [] };
 }
 
-/** 角点吸附：把候选四边形的角点吸到附近最强的 Harris 角点（限 9% 画面范围内，用于遮挡角外推） */
-function snapToCorners(quad: Point[], corners: Point[], W: number, H: number): Point[] {
-  if (corners.length === 0) return quad;
-  const px = toPx(quad, W, H);
-  const radius = Math.min(W, H) * 0.09;
-  const snapped = px.map((p) => {
-    let best: Point | null = null;
-    let bestD = radius;
-    for (const c of corners) {
-      const d = Math.hypot(c.x * W - p.x, c.y * H - p.y);
-      if (d < bestD) { bestD = d; best = { x: c.x * W, y: c.y * H }; }
+/** 点到直线距离（直线以「过点 + 方向」表示），供拟合残差评估用 */
+function pointToLineDist(px: number, py: number, x0: number, y0: number, vx: number, vy: number): number {
+  return Math.abs((px - x0) * vy - (py - y0) * vx);
+}
+
+/**
+ * 单边直线拟合（TLS）：沿候选边（略外延）做垂直带采样，收集边缘像素后用
+ * 2x2 协方差最大特征向量拟合主方向。命中点太少、或残差过大（弯曲书脊/噪声
+ * 导致点沿边不成直线）判为不可靠，返回 null 供调用方回退。
+ */
+function fitEdgeLine(edges: any, a: Point, b: Point, W: number, H: number) {
+  const dx = b.x - a.x;
+  const dy = b.y - a.y;
+  const len = Math.hypot(dx, dy);
+  if (len < 10) return null;
+  const nx = -dy / len;
+  const ny = dx / len;
+  const pts: number[] = [];
+  const steps = Math.max(24, Math.round(len * 0.5));
+  for (let s = 0; s <= steps; s++) {
+    // 略外延（-0.18 ~ 1.18），捕捉被裁角向外的真实边缘延续
+    const t = -0.18 + 1.36 * (s / steps);
+    const px = Math.round(a.x + dx * t);
+    const py = Math.round(a.y + dy * t);
+    if (px < 0 || py < 0 || px >= W || py >= H) continue;
+    let bx = px, by = py, bestD = Infinity, found = false;
+    for (let d = -5; d <= 5; d++) {
+      const sx = Math.round(px + nx * d);
+      const sy = Math.round(py + ny * d);
+      if (sx < 0 || sy < 0 || sx >= W || sy >= H) continue;
+      if (edges.ucharPtr(sy, sx)[0] > 0) {
+        const dd = Math.abs(d);
+        if (dd < bestD) { bestD = dd; bx = sx; by = sy; found = true; }
+      }
     }
-    return best ?? p;
-  });
-  return toNorm(orderQuad(snapped), W, H);
+    if (found) pts.push(bx, by);
+  }
+  if (pts.length < Math.max(12, len * 0.12)) return null;
+  // TLS 主方向：协方差最大特征向量
+  const n = pts.length / 2;
+  let cx = 0, cy = 0;
+  for (let i = 0; i < n; i++) {
+    cx += pts[i * 2];
+    cy += pts[i * 2 + 1];
+  }
+  cx /= n;
+  cy /= n;
+  let sxx = 0, sxy = 0, syy = 0;
+  for (let i = 0; i < n; i++) {
+    const ddx = pts[i * 2] - cx;
+    const ddy = pts[i * 2 + 1] - cy;
+    sxx += ddx * ddx;
+    sxy += ddx * ddy;
+    syy += ddy * ddy;
+  }
+  const lam = (sxx + syy) / 2 + Math.sqrt(Math.pow((sxx - syy) / 2, 2) + sxy * sxy);
+  let vx = sxy;
+  let vy = lam - sxx;
+  const vLen = Math.hypot(vx, vy) || 1;
+  vx /= vLen;
+  vy /= vLen;
+  // 残差：平均点到线距离，>7px 判为不可靠（防止弯曲边把方向带偏）
+  let err = 0;
+  for (let i = 0; i < n; i++) err += pointToLineDist(pts[i * 2], pts[i * 2 + 1], cx, cy, vx, vy);
+  err /= n;
+  if (err > 7) return null;
+  return { x0: cx, y0: cy, vx, vy };
+}
+
+/** 两直线（过点 + 方向）交点；近平行返回 null */
+function lineIntersect(
+  l1: { x0: number; y0: number; vx: number; vy: number },
+  l2: { x0: number; y0: number; vx: number; vy: number },
+): Point | null {
+  const d = l1.vx * l2.vy - l1.vy * l2.vx;
+  if (Math.abs(d) < 1e-9) return null;
+  const t = ((l2.x0 - l1.x0) * l2.vy - (l2.y0 - l1.y0) * l2.vx) / d;
+  return { x: l1.x0 + l1.vx * t, y: l1.y0 + l1.vy * t };
+}
+
+/** 最近 Harris 角点（限 radius 半径内；找不到返回 null） */
+function nearestHarris(q: Point, corners: Point[], W: number, H: number, radius: number): Point | null {
+  if (corners.length === 0) return null;
+  const px = q.x * W;
+  const py = q.y * H;
+  let best: Point | null = null;
+  let bestD = radius;
+  for (const c of corners) {
+    const d = Math.hypot(c.x * W - px, c.y * H - py);
+    if (d < bestD) {
+      bestD = d;
+      best = { x: c.x * W, y: c.y * H };
+    }
+  }
+  return best;
+}
+
+/**
+ * 角点外推精修：对候选四边形四条边做带内边缘采样 + TLS 直线拟合，用相邻两长边求交
+ * 重建角点。相比「找最近 Harris 角点」，它能外推出被遮挡/圆角/强透视下真实存在、
+ * 但局部没有强角点响应的角点。每条边必须直线性可靠（残差小），交点落在合理边界内、
+ * 位移不超限才采用；否则逐角回退到最近 Harris 角点 / 原角点，确保噪声不会把框算飞。
+ */
+function extrapolateCorners(edges: any, quad: Point[], corners: Point[], W: number, H: number): Point[] {
+  const lines: Array<{ x0: number; y0: number; vx: number; vy: number } | null> = [];
+  for (let i = 0; i < 4; i++) lines.push(fitEdgeLine(edges, quad[i], quad[(i + 1) % 4], W, H));
+  const maxMove = Math.min(W, H) * 0.22;
+  const margin = Math.min(W, H) * 0.2;
+  const inBounds = (p: Point) => p.x > -margin && p.x < W + margin && p.y > -margin && p.y < H + margin;
+  const out: Point[] = [];
+  for (let j = 0; j < 4; j++) {
+    const lPrev = lines[(j + 3) % 4];
+    const lNext = lines[j];
+    let used = false;
+    if (lPrev && lNext) {
+      const p = lineIntersect(lPrev, lNext);
+      if (p && inBounds(p)) {
+        const dMove = Math.hypot(p.x - quad[j].x, p.y - quad[j].y);
+        if (dMove <= maxMove) {
+          out.push(p);
+          used = true;
+        }
+      }
+    }
+    if (!used) {
+      const n = nearestHarris(quad[j], corners, W, H, Math.min(W, H) * 0.09);
+      out.push(n ?? quad[j]);
+    }
+  }
+  return out;
 }
 
 /**
  * 主入口：多策略融合自动边缘检测。
  * 流程：阴影校正灰度 → 策略 A/B/C/D 并行出候选 → 加权评分 → 近似融合 →
- * Harris 角点吸附 → 全失败时三级兜底（分块边缘点 → 内缩参考框）。
+ * 角点外推精修（邻边求交重建，带回退）→ 全失败时三级兜底（分块边缘点 → 内缩参考框）。
  */
 export function detectQuadInMat(cv: any, src: any): DetectOutcome | null {
   const t0 = performance.now();
@@ -525,9 +640,11 @@ export function detectQuadInMat(cv: any, src: any): DetectOutcome | null {
       if (avgScore >= best.score) best = { ...best, quad: orderQuad(avg), score: avgScore };
     }
 
-    // ===== Harris 角点吸附 =====
-    let quad = snapToCorners(best.quad, harris.corners, W, H);
-    // 吸附后保证有效
+    // ===== 角点外推精修：相邻两长边求交重建角点（遮挡/强透视更准），
+    //       不可靠的边逐角回退到最近 Harris 角点 / 原角点 =====
+    const refinedPx = extrapolateCorners(edgesUnion, toPx(best.quad, W, H), harris.corners, W, H);
+    let quad = toNorm(orderQuad(refinedPx), W, H);
+    // 精修后保证有效（面积过小则回退）
     if (polyArea(toPx(quad, W, H)) / (W * H) < 0.04) quad = best.quad;
 
     return { quad, status: 'found', confidence: +best.score.toFixed(3), elapsedMs: Math.round(performance.now() - t0) };
