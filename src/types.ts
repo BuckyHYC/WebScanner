@@ -49,6 +49,8 @@ export interface Page {
   filterName: string;
   /** 涂抹擦除蒙版（归一化 PNG dataURL，白色=擦除区；null=无）。作用于滤镜处理后的图像 */
   eraseMask?: string | null;
+  /** OCR 识别结果（null/undefined=未识别过）；stale=识别后图片又被编辑，结果可能过期 */
+  ocr?: { text: string; stale: boolean; updatedAt: number } | null;
 }
 
 /** 草稿元信息（首页列表用，页面数据另存 pages 表） */

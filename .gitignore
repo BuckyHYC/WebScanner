@@ -4,6 +4,9 @@ node_modules/
 # opencv.js 由 scripts/copy-opencv.js 从 node_modules 生成
 public/opencv/
 
+# OCR 模型与 onnxruntime wasm 由 scripts/copy-ocr.js 从 node_modules 生成
+public/ocr/
+
 # 构建产物
 dist/
 dist-ssr/

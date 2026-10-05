@@ -69,6 +69,9 @@ interface Store {
 
 let toastSeq = 1;
 
+/** 这些视觉字段的编辑会使该页已有 OCR 结果过期（保留文本，仅置 stale 标记） */
+const OCR_STALE_KEYS = ['corners', 'filter', 'rotation', 'flipH', 'flipV', 'fineRotate', 'polygon', 'eraseMask'];
+
 export const useStore = create<Store>()(subscribeWithSelector((set, get) => ({
   view: 'home',
   draftId: null,
@@ -169,16 +172,29 @@ export const useStore = create<Store>()(subscribeWithSelector((set, get) => ({
   updatePage: (id, patch, history = true) => {
     if (history) get().pushHistory();
     set((s) => ({
-      pages: s.pages.map((p) => (p.id === id ? { ...p, ...patch } : p)),
+      pages: s.pages.map((p) => {
+        if (p.id !== id) return p;
+        const next: Page = { ...p, ...patch };
+        // 编辑了视觉相关字段且未直接写入新 OCR 结果 → 已有结果标记过期
+        if (!('ocr' in patch) && p.ocr?.text && !p.ocr.stale && OCR_STALE_KEYS.some((k) => k in patch)) {
+          next.ocr = { ...p.ocr, stale: true };
+        }
+        return next;
+      }),
     }));
   },
 
   updateFilter: (id, patch, history = true) => {
     if (history) get().pushHistory();
     set((s) => ({
-      pages: s.pages.map((p) =>
-        p.id === id ? { ...p, filter: { ...p.filter, ...patch } } : p,
-      ),
+      pages: s.pages.map((p) => {
+        if (p.id !== id) return p;
+        const filter = { ...p.filter, ...patch };
+        const next: Page = { ...p, filter };
+        // 滤镜变化也会使已有 OCR 结果过期
+        if (p.ocr?.text && !p.ocr.stale) next.ocr = { ...p.ocr, stale: true };
+        return next;
+      }),
     }));
   },
 
@@ -193,6 +209,7 @@ export const useStore = create<Store>()(subscribeWithSelector((set, get) => ({
           ...p,
           filter: { ...cur.filter },
           filterName: cur.filterName,
+          ocr: p.ocr?.text && !p.ocr.stale ? { ...p.ocr, stale: true } : p.ocr,
         })),
       };
     });
@@ -205,6 +222,7 @@ export const useStore = create<Store>()(subscribeWithSelector((set, get) => ({
         ...p,
         filter: defaultFilter('magic'),
         filterName: filterLabel('magic'),
+        ocr: p.ocr?.text && !p.ocr.stale ? { ...p.ocr, stale: true } : p.ocr,
       })),
     }));
   },

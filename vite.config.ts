@@ -24,6 +24,8 @@ export default defineConfig({
             workbox: {
               // precache 全部静态资源（含 opencv.js 约 10MB，须调大单文件上限）
               globPatterns: ['**/*.{js,css,html,woff2}'],
+              // OCR 引擎块（含嵌套 opencv-js 约 10MB）不进 precache：模型本身也不可离线预缓存，OCR 首次使用本就需要联网
+              globIgnores: ['**/assets/ocr-*.js'],
               maximumFileSizeToCacheInBytes: 12 * 1024 * 1024,
               navigateFallback: 'index.html',
             },
@@ -45,9 +47,13 @@ export default defineConfig({
     chunkSizeWarningLimit: 15000,
     rollupOptions: {
       output: {
-        manualChunks: {
-          vendor: ['react', 'react-dom', 'zustand'],
-          exporter: ['pdf-lib', 'jszip'],
+        manualChunks(id: string) {
+          if (!id.includes('node_modules')) return undefined;
+          // OCR 引擎独立分包（懒加载），并经 globIgnores 排除出 PWA precache
+          if (id.includes('@gutenye') || id.includes('onnxruntime') || id.includes('opencv-js')) return 'ocr';
+          if (id.includes('pdf-lib') || id.includes('jszip')) return 'exporter';
+          if (id.includes('/react') || id.includes('react-dom') || id.includes('scheduler') || id.includes('zustand')) return 'vendor';
+          return undefined;
         },
       },
     },

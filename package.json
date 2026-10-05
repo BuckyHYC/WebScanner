@@ -5,14 +5,15 @@
   "type": "module",
   "description": "纯前端智能扫描工具：边缘检测、透视矫正、滤镜增强、PDF/JPG 导出，全程本地处理",
   "scripts": {
-    "predev": "node scripts/copy-opencv.js",
+    "predev": "node scripts/copy-opencv.js && node scripts/copy-ocr.js",
     "dev": "vite",
-    "prebuild": "node scripts/copy-opencv.js",
+    "prebuild": "node scripts/copy-opencv.js && node scripts/copy-ocr.js",
     "build": "tsc --noEmit && vite build",
     "preview": "vite preview",
     "test": "vitest run"
   },
   "dependencies": {
+    "@gutenye/ocr-browser": "^1.4.9",
     "@techstark/opencv-js": "^4.12.0-release.1",
     "dexie": "^4.4.5",
     "heic2any": "^0.0.4",
@@ -29,6 +30,7 @@
     "@vitejs/plugin-react": "^4.3.4",
     "autoprefixer": "^10.4.20",
     "postcss": "^8.4.49",
+    "puppeteer-core": "^25.12.0",
     "tailwindcss": "^3.4.15",
     "typescript": "~5.6.3",
     "vite": "^5.4.11",

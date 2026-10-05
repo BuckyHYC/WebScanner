@@ -6,6 +6,7 @@ import ThumbList from './ThumbList';
 import CropStage from './CropStage';
 import EnhanceStage from './EnhanceStage';
 import EraseStage from './EraseStage';
+import OcrStage from './OcrStage';
 import FilterPanel from './FilterPanel';
 import ExportDialog from './ExportDialog';
 import { importFiles } from '../utils/importer';
@@ -38,7 +39,7 @@ export default function Workspace() {
   const pages = useStore((s) => s.pages);
   const current = useStore((s) => s.current);
   const draftName = useStore((s) => s.draftName);
-  const [tab, setTab] = useState<'crop' | 'enhance' | 'erase'>('crop');
+  const [tab, setTab] = useState<'crop' | 'enhance' | 'erase' | 'ocr'>('crop');
   const [exportOpen, setExportOpen] = useState(false);
   const [mobilePanel, setMobilePanel] = useState(false);
   const page: Page | undefined = pages[current];
@@ -135,6 +136,7 @@ export default function Workspace() {
                 ['crop', '① 裁剪矫正'],
                 ['enhance', '② 增强滤镜'],
                 ['erase', '③ 去污'],
+                ['ocr', '④ 文字识别'],
               ] as const
             ).map(([k, label]) => (
               <button
@@ -153,7 +155,7 @@ export default function Workspace() {
           </div>
 
           <div className="flex-1 min-h-0 relative bg-ink-950">
-            {tab === 'crop' ? <CropStage page={page} onNext={() => setTab('enhance')} /> : tab === 'enhance' ? <EnhanceStage page={page} onNext={() => setTab('erase')} /> : <EraseStage page={page} />}
+            {tab === 'crop' ? <CropStage page={page} onNext={() => setTab('enhance')} /> : tab === 'enhance' ? <EnhanceStage page={page} onNext={() => setTab('erase')} /> : tab === 'erase' ? <EraseStage page={page} /> : <OcrStage page={page} />}
           </div>
         </main>
 
