@@ -9,6 +9,12 @@ interface Props {
   page: Page;
 }
 
+/** 提取错误关键信息（toast 展示用，便于不同浏览器环境下定位） */
+function errMsg(e: unknown): string {
+  const msg = e instanceof Error ? e.message : String(e);
+  return msg.length > 80 ? msg.slice(0, 80) + '…' : msg || '未知错误';
+}
+
 /**
  * 文字识别工作台（第④步）：
  * - 左侧显示当前页处理后画面（裁剪+滤镜+擦除+旋转），右侧结果面板
@@ -71,7 +77,7 @@ export default function OcrStage({ page }: Props) {
       if (!hasText) useStore.getState().toast('未识别到文字');
     } catch (e) {
       console.warn('OCR 识别失败', e);
-      useStore.getState().toast('识别失败，请确认模型资源可访问后重试', 'error');
+      useStore.getState().toast(`识别失败：${errMsg(e)}`, 'error');
     } finally {
       setBusy(null);
     }
@@ -90,6 +96,7 @@ export default function OcrStage({ page }: Props) {
     setBusy('批量识别中…');
     let done = 0;
     let withText = 0;
+    let failed = 0;
     try {
       await loadOcrEngine();
       for (const p of useStore.getState().pages) {
@@ -102,20 +109,24 @@ export default function OcrStage({ page }: Props) {
         useStore.getState().setExporting({ active: true, done, total: pages.length, label: `OCR 识别中（${p.name}）` });
         try {
           if (await runOne(p)) withText++;
-        } catch {
+        } catch (e) {
           /* 单页失败不中断批量 */
+          failed++;
+          console.warn(`「${p.name}」识别失败`, e);
         }
         done++;
         useStore.getState().setExporting({ active: true, done, total: pages.length, label: 'OCR 识别中' });
       }
       if (cancelRef.current) {
         useStore.getState().toast('批量识别已取消');
+      } else if (failed > 0) {
+        useStore.getState().toast(`批量识别完成：成功 ${done - failed}/${done} 页（失败 ${failed} 页，详见控制台）`, failed === done ? 'error' : 'info');
       } else {
         useStore.getState().toast(`批量识别完成：${withText}/${done} 页含文字`, 'success');
       }
     } catch (e) {
       console.warn('批量 OCR 失败', e);
-      useStore.getState().toast('识别引擎加载失败，请重试', 'error');
+      useStore.getState().toast(`识别引擎加载失败：${errMsg(e)}`, 'error');
     } finally {
       setBusy(null);
       useStore.getState().setExporting(null);

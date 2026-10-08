@@ -19,6 +19,12 @@ async function main() {
   });
   const page = await browser.newPage();
   await page.setViewport({ width: 1400, height: 900 });
+  // E2E_UA=1 时模拟 iPhone Safari UA，验证 WebKit 降级路径（主线程推理）
+  if (process.env.E2E_UA) {
+    await page.setUserAgent(
+      'Mozilla/5.0 (iPhone; CPU iPhone OS 17_5 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/17.5 Mobile/15E148 Safari/604.1',
+    );
+  }
   page.on('console', (m) => {
     const t = m.text();
     if (/error|fail|异常|失败/i.test(t)) console.log('[page]', t);
