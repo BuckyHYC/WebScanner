@@ -2,7 +2,8 @@ import { useCallback, useEffect, useRef, useState } from 'react';
 import type { Page, Point } from '../types';
 import { useStore } from '../store/useStore';
 import { loadOpenCV } from '../utils/opencvLoader';
-import { renderGeometry } from '../utils/render';
+import { applyFilterToCanvas, renderGeometry } from '../utils/render';
+import { isFilterActive } from '../utils/enhance';
 import { applyEraseMask, composeMask, paintStroke } from '../utils/erase';
 import { IconBrush, IconEraser, IconUndo, IconTrash } from './icons';
 
@@ -42,7 +43,14 @@ export default function EraseStage({ page }: Props) {
     try {
       const el = containerRef.current;
       const target = Math.max(800, Math.min(1600, Math.round((el?.clientWidth ?? 1000) * (window.devicePixelRatio || 1))));
-      const canvas = await renderGeometry(page, target);
+      let canvas = await renderGeometry(page, target);
+      // 去污在滤镜结果上进行（与导出 renderFinal 的管线顺序一致）
+      if (isFilterActive(page.filter)) {
+        const filtered = await applyFilterToCanvas(canvas, page.filter);
+        canvas.width = 0;
+        canvas.height = 0;
+        canvas = filtered;
+      }
       // 缓存"未擦除的干净底图"：撤销时从它重放剩余笔画
       baseCleanRef.current = canvas;
       // 应用已存储的累计蒙版（来自历史草稿/重建）：作为可撤回的一笔

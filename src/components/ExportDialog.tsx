@@ -30,7 +30,9 @@ export default function ExportDialog({ onClose }: Props) {
       author: '',
     };
   });
-  const [jpgScope, setJpgScope] = useState<'current' | 'all'>('all');
+  const [scope, setScope] = useState<'all' | 'current' | 'custom'>('all');
+  /** 自选页（存 pageId，按 pages 顺序输出） */
+  const [picked, setPicked] = useState<string[]>(() => useStore.getState().pages.map((p) => p.id));
   const [jpgDelivery, setJpgDelivery] = useState<'zip' | 'direct'>('zip');
   // 记住图片子格式：PDF ↔ 图片来回切换时保留上次选择的 JPG/PNG
   const [lastImgFmt, setLastImgFmt] = useState<'jpg' | 'png'>(() => {
@@ -43,9 +45,13 @@ export default function ExportDialog({ onClose }: Props) {
   const set = <K extends keyof ExportOptions>(k: K, v: ExportOptions[K]) => setOpts((o) => ({ ...o, [k]: v }));
 
   const targets: Page[] = useMemo(() => {
-    if (opts.format === 'pdf') return pages;
-    return jpgScope === 'current' && pages[current] ? [pages[current]] : pages;
-  }, [opts.format, jpgScope, pages, current]);
+    if (scope === 'all') return pages;
+    if (scope === 'current') return pages[current] ? [pages[current]] : [];
+    return pages.filter((p) => picked.includes(p.id));
+  }, [scope, picked, pages, current]);
+
+  /** 各导出页在全部页面中的原始序号（文件名编号沿用原页序） */
+  const indices = useMemo(() => targets.map((t) => pages.indexOf(t)), [targets, pages]);
 
   /** 图片格式的扩展名（JPG/PNG） */
   const imgExt = opts.format === 'png' ? 'png' : 'jpg';
@@ -68,16 +74,18 @@ export default function ExportDialog({ onClose }: Props) {
         await exportSingleImage(targets[0], opts, pages.indexOf(targets[0]), controller.signal);
       } else if (jpgDelivery === 'direct') {
         // 逐张直接导出：每张单独下载，移动端可直接存入相册
-        const indices = targets.map((t) => pages.indexOf(t));
         await exportImagesDirectly(targets, opts, indices, (done, total) =>
           s.setExporting({ active: true, done, total, label: '正在逐张导出…' }),
           controller.signal,
         );
         s.toast(`已逐张导出 ${targets.length} 张，请在下载/相册中查看`, 'success');
       } else {
-        const blob = await exportImagesZip(targets, opts, (done, total) =>
-          s.setExporting({ active: true, done, total, label: '正在打包 ZIP…' }),
+        const blob = await exportImagesZip(
+          targets,
+          opts,
+          (done, total) => s.setExporting({ active: true, done, total, label: '正在打包 ZIP…' }),
           controller.signal,
+          indices,
         );
         downloadBlob(blob, `${opts.prefix || 'scan'}.zip`);
       }
@@ -171,6 +179,82 @@ export default function ExportDialog({ onClose }: Props) {
           </Field>
         )}
 
+        {/* 导出范围：全部 / 当前页 / 自选页（PDF 与图片通用） */}
+        {pages.length > 1 && (
+          <Field label="导出范围">
+            <Segmented
+              value={scope}
+              onChange={(v) => {
+                const next = v as 'all' | 'current' | 'custom';
+                // 首次进入自选页默认全选，便于逐页取消
+                if (next === 'custom' && picked.length === 0) setPicked(pages.map((p) => p.id));
+                setScope(next);
+              }}
+              options={[
+                ['all', `全部 ${pages.length} 页`],
+                ['current', `当前页 ${current + 1}`],
+                ['custom', '自选页'],
+              ]}
+            />
+            {scope === 'custom' && (
+              <div className="flex flex-col gap-1.5">
+                <div className="flex items-center gap-2 text-[11px] text-slate-500">
+                  <span className={targets.length === 0 ? 'text-rose-300' : ''}>
+                    已选 {targets.length} / {pages.length} 页
+                  </span>
+                  <div className="flex-1" />
+                  <button className="btn-ghost px-1.5 py-0.5 text-[11px]" onClick={() => setPicked(pages.map((p) => p.id))}>
+                    全选
+                  </button>
+                  <button className="btn-ghost px-1.5 py-0.5 text-[11px]" onClick={() => setPicked([])}>
+                    清空
+                  </button>
+                  <button
+                    className="btn-ghost px-1.5 py-0.5 text-[11px]"
+                    onClick={() => setPicked(pages.filter((p) => !picked.includes(p.id)).map((p) => p.id))}
+                  >
+                    反选
+                  </button>
+                </div>
+                <div className="grid grid-cols-4 gap-1.5 max-h-56 overflow-y-auto pr-0.5">
+                  {pages.map((p, i) => {
+                    const on = picked.includes(p.id);
+                    return (
+                      <button
+                        key={p.id}
+                        title={p.name}
+                        className={`relative aspect-[3/4] rounded-md overflow-hidden border-2 transition-colors ${
+                          on ? 'border-accent' : 'border-ink-700 opacity-60 hover:opacity-100'
+                        }`}
+                        onClick={() =>
+                          setPicked(on ? picked.filter((id) => id !== p.id) : [...picked, p.id])
+                        }
+                      >
+                        <img src={p.thumb} alt={p.name} className="w-full h-full object-cover" />
+                        <span className="absolute left-0 top-0 px-1 text-[10px] bg-black/60 text-slate-100 rounded-br">
+                          {i + 1}
+                        </span>
+                        {on && (
+                          <span className="absolute right-1 bottom-1 w-4 h-4 rounded-full bg-accent text-white text-[10px] flex items-center justify-center">
+                            ✓
+                          </span>
+                        )}
+                      </button>
+                    );
+                  })}
+                </div>
+              </div>
+            )}
+            <p className="text-[11px] text-slate-500">
+              {scope === 'all'
+                ? `将按页序导出全部 ${pages.length} 页`
+                : scope === 'current'
+                  ? `仅导出第 ${current + 1} 页`
+                  : '按勾选导出，页序与编号保持原文档顺序'}
+            </p>
+          </Field>
+        )}
+
         {/* 图片多页打包方式 */}
         {opts.format !== 'pdf' && targets.length > 1 && (
           <Field label="导出方式">
@@ -189,20 +273,6 @@ export default function ExportDialog({ onClose }: Props) {
                 逐张下载 {targets.length} 张图片，手机端可直接保存到相册；若浏览器提示是否允许下载多个文件，请选择允许
               </p>
             )}
-          </Field>
-        )}
-
-        {/* 图片导出范围 */}
-        {opts.format !== 'pdf' && pages.length > 1 && (
-          <Field label="导出范围">
-            <Segmented
-              value={jpgScope}
-              onChange={(v) => setJpgScope(v as 'current' | 'all')}
-              options={[
-                ['current', `当前页（第 ${current + 1} 页）`],
-                ['all', `全部页（${pages.length} 页）`],
-              ]}
-            />
           </Field>
         )}
 

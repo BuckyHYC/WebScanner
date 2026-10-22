@@ -2,6 +2,8 @@ import { useCallback, useEffect, useRef, useState } from 'react';
 import type { Page, Point } from '../types';
 import { useStore } from '../store/useStore';
 import { applyFilterToCanvas, renderGeometry } from '../utils/render';
+import { loadOpenCV } from '../utils/opencvLoader';
+import { applyEraseMask } from '../utils/erase';
 import { IconBrush, IconUndo, IconCheck, IconTrash, IconArrowRight } from './icons';
 
 interface Props {
@@ -45,7 +47,11 @@ export default function EnhanceStage({ page, onNext }: Props) {
     const display = displayRef.current;
     if (!base || !display) return;
     try {
-      const out = await applyFilterToCanvas(base.canvas, page.filter);
+      let out = await applyFilterToCanvas(base.canvas, page.filter);
+      // 擦除蒙版作用于滤镜结果（与导出 renderFinal 的顺序一致），否则预览落后于导出
+      if (page.eraseMask) {
+        out = await applyEraseMask(await loadOpenCV(), out, page.eraseMask, out);
+      }
       display.width = out.width;
       display.height = out.height;
       display.getContext('2d')!.drawImage(out, 0, 0);
@@ -53,7 +59,7 @@ export default function EnhanceStage({ page, onNext }: Props) {
     } catch (e) {
       console.warn('滤镜应用失败', e);
     }
-  }, [page.filter]);
+  }, [page.filter, page.eraseMask]);
 
   // 几何变化 → 重建基础画布 → 应用滤镜
   useEffect(() => {
@@ -85,7 +91,7 @@ export default function EnhanceStage({ page, onNext }: Props) {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [page.id, geoKey]);
 
-  // 滤镜变化 → 只重跑滤镜（防抖 120ms）
+  // 滤镜 / 擦除蒙版变化 → 只重跑滤镜+擦除（防抖 120ms；applyFilter 依赖两者身份）
   useEffect(() => {
     if (baseRef.current?.key !== geoKey) return;
     let cancelled = false;
@@ -96,7 +102,7 @@ export default function EnhanceStage({ page, onNext }: Props) {
       cancelled = true;
       clearTimeout(t);
     };
-  }, [page.filter, geoKey, applyFilter]);
+  }, [page.filter, page.eraseMask, geoKey, applyFilter]);
 
   // 切页清理
   useEffect(() => {

@@ -116,12 +116,14 @@ export async function exportPdf(
   return new Blob([bytes as unknown as BlobPart], { type: 'application/pdf' });
 }
 
-/** 批量导出图片（JPG/PNG）并打包 ZIP */
+/** 批量导出图片（JPG/PNG）并打包 ZIP。
+ *  indices 为各页在全部页面中的原始序号（自选页导出时保持原编号）；缺省按导出顺序编号。 */
 export async function exportImagesZip(
   pages: Page[],
   opts: ExportOptions,
   onProgress?: (done: number, total: number) => void,
   signal?: AbortSignal,
+  indices?: number[],
 ): Promise<Blob> {
   const zip = new JSZip();
   const folder = zip.folder(opts.prefix || 'scan') ?? zip;
@@ -129,7 +131,7 @@ export async function exportImagesZip(
   for (let i = 0; i < pages.length; i++) {
     assertNotAborted(signal);
     const blob = await renderPageBlob(pages[i], opts);
-    folder.file(pageFileName(opts.prefix, i, ext), blob);
+    folder.file(pageFileName(opts.prefix, indices?.[i] ?? i, ext), blob);
     onProgress?.(i + 1, pages.length);
   }
   return zip.generateAsync({ type: 'blob', compression: 'STORE' });
