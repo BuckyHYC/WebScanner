@@ -1,6 +1,6 @@
 import type { FilterState, Page, Point } from '../types';
 import { loadOpenCV } from './opencvLoader';
-import { detectQuadInCanvas } from './detect';
+import { detectQuadInCanvas, refineQuadInCanvas } from './detect';
 import type { DetectOutcome } from './detect';
 import { targetSizeFromQuad, quadToPixels } from './geometry';
 import { enhanceMat, isFilterActive } from './enhance';
@@ -181,7 +181,8 @@ export async function renderFinal(page: Page, maxEdge: number, reuseCanvas?: HTM
 }
 
 /** 对一页执行自动边缘检测（低清预览上检测，保证速度）。
- *  status=found  识别成功；status=fallback 未识别（内缩参考框/分块边缘） */
+ *  status=found  识别成功；status=fallback 未识别（内缩参考框/分块边缘）
+ *  两段式：480 长边粗定位 → 1200 长边亚像素精修（消除角点量化误差） */
 export async function autoDetectPage(page: Page): Promise<DetectOutcome | null> {
   const cv = await loadOpenCV();
   const img = new Image();
@@ -192,5 +193,18 @@ export async function autoDetectPage(page: Page): Promise<DetectOutcome | null> 
   canvas.width = Math.max(1, Math.round(img.width * scale));
   canvas.height = Math.max(1, Math.round(img.height * scale));
   canvas.getContext('2d', { willReadFrequently: true })!.drawImage(img, 0, 0, canvas.width, canvas.height);
-  return detectQuadInCanvas(cv, canvas);
+  const outcome = detectQuadInCanvas(cv, canvas);
+  if (!outcome || outcome.status !== 'found') return outcome;
+
+  // 高分辨率精修：只做梯度边缘定位，成本远低于重跑全部策略
+  const fine = document.createElement('canvas');
+  const scale2 = Math.min(1, 1200 / Math.max(img.width, img.height));
+  fine.width = Math.max(1, Math.round(img.width * scale2));
+  fine.height = Math.max(1, Math.round(img.height * scale2));
+  fine.getContext('2d', { willReadFrequently: true })!.drawImage(img, 0, 0, fine.width, fine.height);
+  const refined = refineQuadInCanvas(cv, fine, outcome.quad);
+  fine.width = 0;
+  fine.height = 0;
+  if (refined) outcome.quad = refined;
+  return outcome;
 }

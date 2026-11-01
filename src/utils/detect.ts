@@ -116,6 +116,94 @@ function edgeSupport(cv: any, edges: any, quadPx: Point[]): number {
 }
 
 /**
+ * 候选「像一张纸」的后验评分（0~1），用于压掉「锁定正文块/背景亮矩形」这类错误候选：
+ * 1) 边两侧的亮度阶跃方向：真实纸边是「纸（亮）→ 背景（暗）」，沿边法线的带内均值应显著
+ *    大于带外均值；而文字块的边两侧都是纸（甚至外侧更亮），带符号差接近 0 或为负。
+ * 2) 内部整体亮度：纸面通常偏亮（深色纸张场景此项低，只作次要项）。
+ */
+function pageScore(gray: any, quadPx: Point[], W: number, H: number): number {
+  const gAt = (x: number, y: number) => {
+    const xi = Math.round(x);
+    const yi = Math.round(y);
+    if (xi < 0 || yi < 0 || xi >= W || yi >= H) return -1;
+    return gray.ucharPtr(yi, xi)[0];
+  };
+  const cxq = (quadPx[0].x + quadPx[1].x + quadPx[2].x + quadPx[3].x) / 4;
+  const cyq = (quadPx[0].y + quadPx[1].y + quadPx[2].y + quadPx[3].y) / 4;
+
+  let signed = 0;
+  let counted = 0;
+  for (let i = 0; i < 4; i++) {
+    const a = quadPx[i];
+    const b = quadPx[(i + 1) % 4];
+    const dx = b.x - a.x;
+    const dy = b.y - a.y;
+    const len = Math.hypot(dx, dy);
+    if (len < 24) continue;
+    const nx = -dy / len;
+    const ny = dx / len;
+    // 法线方向统一指向四边形内部（用质心判定，避免依赖顶点顺序/坐标系）
+    const mx = (a.x + b.x) / 2;
+    const my = (a.y + b.y) / 2;
+    const sign = nx * (cxq - mx) + ny * (cyq - my) >= 0 ? 1 : -1;
+    for (let s = 2; s <= 18; s++) {
+      const t = s / 20;
+      const px = a.x + dx * t;
+      const py = a.y + dy * t;
+      let inn = 0;
+      let innN = 0;
+      let out = 0;
+      let outN = 0;
+      for (const d of [2, 3, 4, 5]) {
+        const vi = gAt(px + nx * d * sign, py + ny * d * sign);
+        if (vi >= 0) {
+          inn += vi;
+          innN++;
+        }
+        const vo = gAt(px - nx * d * sign, py - ny * d * sign);
+        if (vo >= 0) {
+          out += vo;
+          outN++;
+        }
+      }
+      if (innN && outN) {
+        signed += inn / innN - out / outN;
+        counted++;
+      }
+    }
+  }
+  const dContrast = counted ? signed / counted : 0;
+
+  // 内部亮度（点内测试网格采样）
+  const inPoly = (x: number, y: number) => {
+    let inside = false;
+    for (let i = 0, j = 3; i < 4; j = i++) {
+      const xi = quadPx[i].x;
+      const yi = quadPx[i].y;
+      const xj = quadPx[j].x;
+      const yj = quadPx[j].y;
+      if (yi > y !== yj > y && x < ((xj - xi) * (y - yi)) / (yj - yi) + xi) inside = !inside;
+    }
+    return inside;
+  };
+  let sum = 0;
+  let n = 0;
+  const step = Math.max(6, Math.round(Math.min(W, H) / 60));
+  for (let y = 0; y < H; y += step) {
+    for (let x = 0; x < W; x += step) {
+      if (!inPoly(x, y)) continue;
+      sum += gray.ucharPtr(y, x)[0];
+      n++;
+    }
+  }
+  const innerMean = n ? sum / n : 0;
+
+  const sSigned = clamp01(0.5 + dContrast / 60);
+  const sBright = clamp01((innerMean - 110) / 100);
+  return 0.7 * sSigned + 0.3 * sBright;
+}
+
+/**
  * 阴影校正：形态学闭 + 高斯平滑估计背景光照层，灰度除法归一化。
  * 返回校正后的单通道灰度 Mat（已登记 pool）。
  */
@@ -148,7 +236,16 @@ function correctedGray(cv: any, pool: ReturnType<typeof createMatPool>, src: any
  * 低对比场景的纸张边缘会消失；阴影校正是给显著性/角点策略用的。
  * 每组阈值最多贡献 2 个候选（面积降序）。
  */
-function strategyEdges(cv: any, pool: ReturnType<typeof createMatPool>, src: any, W: number, H: number, out: Candidate[], edgesUnion: any) {
+function strategyEdges(
+  cv: any,
+  pool: ReturnType<typeof createMatPool>,
+  src: any,
+  W: number,
+  H: number,
+  out: Candidate[],
+  edgesUnion: any,
+  edgesRaw: any,
+) {
   const total = W * H;
   const gray = pool.add(new cv.Mat());
   cv.cvtColor(src, gray, cv.COLOR_RGBA2GRAY);
@@ -162,10 +259,12 @@ function strategyEdges(cv: any, pool: ReturnType<typeof createMatPool>, src: any
   for (const a of attempts) {
     cv.GaussianBlur(gray, blur, new cv.Size(3, 3), 0, 0, cv.BORDER_DEFAULT);
     cv.Canny(blur, edges, a.t1, a.t2, 3, false);
+    // 未膨胀边缘并集：用于边缘支撑度评估与亚像素精修（膨胀会让边缘整体外扩 → 系统性偏置）
+    cv.bitwise_or(edgesRaw, edges, edgesRaw);
     const kernel = pool.add(cv.getStructuringElement(cv.MORPH_RECT, new cv.Size(3, 3)));
     cv.dilate(edges, edges, kernel, new cv.Point(-1, -1), a.dil);
     kernel.delete();
-    // 并集：低阈值轮的弱边也保留，供支撑度评估与霍夫/兜底使用
+    // 并集：低阈值轮的弱边也保留，供轮廓/霍夫/兜底使用
     cv.bitwise_or(edgesUnion, edges, edgesUnion);
 
     const contours = pool.add(new cv.MatVector());
@@ -185,7 +284,8 @@ function strategyEdges(cv: any, pool: ReturnType<typeof createMatPool>, src: any
       const cnt = contours.get(i);
       const peri = cv.arcLength(cnt, true);
       let quad: Point[] | null = null;
-      for (const eps of [0.02, 0.035, 0.05]) {
+      // 多档近似容差：圆角/缺角/轻微卷曲时，恰好 4 顶点的 eps 区间很窄，多试几档命中率显著提高
+      for (const eps of [0.01, 0.02, 0.03, 0.035, 0.045, 0.06, 0.08]) {
         const approx = new cv.Mat();
         cv.approxPolyDP(cnt, approx, eps * peri, true);
         if (approx.rows === 4 && cv.isContourConvex(approx)) {
@@ -201,7 +301,7 @@ function strategyEdges(cv: any, pool: ReturnType<typeof createMatPool>, src: any
         const hull = new cv.Mat();
         cv.convexHull(cnt, hull, false, true);
         const hullPeri = cv.arcLength(hull, true);
-        for (const eps of [0.03, 0.05]) {
+        for (const eps of [0.02, 0.03, 0.05, 0.08]) {
           const approx = new cv.Mat();
           cv.approxPolyDP(hull, approx, eps * hullPeri, true);
           if (approx.rows === 4 && cv.isContourConvex(approx)) {
@@ -214,9 +314,22 @@ function strategyEdges(cv: any, pool: ReturnType<typeof createMatPool>, src: any
         }
         hull.delete();
       }
+      if (!quad && pushed === 0) {
+        // 圆角纸/曲面页：轮廓顶点数不是 4，但最小外接旋转矩形贴合良好时仍是最佳外框
+        const cntArea = cv.contourArea(cnt, false);
+        const rect = cv.minAreaRect(cnt);
+        const rectArea = Math.abs(rect.size.width * rect.size.height);
+        if (cntArea > 0 && rectArea > 0 && rectArea <= cntArea * 1.25) {
+          const rp = cv.RotatedRect.points(rect);
+          if (rp && rp.length === 4) {
+            quad = orderQuad(rp.map((p: any) => ({ x: p.x, y: p.y })));
+          }
+        }
+      }
       cnt.delete();
       if (quad) {
-        out.push({ quad: quad.map((p) => ({ x: p.x / W, y: p.y / H })), score: 0, straight: 0.7, source: 'edge' });
+        const rounded = i === idxs[0][0] ? 0.8 : 0.7; // 旋转矩形外框的直线度先验略高
+        out.push({ quad: quad.map((p) => ({ x: p.x / W, y: p.y / H })), score: 0, straight: rounded, source: 'edge' });
         pushed++;
       }
     }
@@ -406,11 +519,126 @@ function pointToLineDist(px: number, py: number, x0: number, y0: number, vx: num
   return Math.abs((px - x0) * vy - (py - y0) * vx);
 }
 
+/** 梯度幅值（Sobel，双通道分开存；取幅值在 JS 里算，避免依赖 cv.magnitude 实现差异） */
+function gradientMaps(cv: any, pool: ReturnType<typeof createMatPool>, src: any): { gray: any; gx: any; gy: any } {
+  const gray = pool.add(new cv.Mat());
+  cv.cvtColor(src, gray, cv.COLOR_RGBA2GRAY);
+  const blur = pool.add(new cv.Mat());
+  cv.GaussianBlur(gray, blur, new cv.Size(3, 3), 0, 0, cv.BORDER_DEFAULT);
+  const gx = pool.add(new cv.Mat());
+  const gy = pool.add(new cv.Mat());
+  cv.Sobel(blur, gx, cv.CV_32F, 1, 0, 3, 1, 0, cv.BORDER_DEFAULT);
+  cv.Sobel(blur, gy, cv.CV_32F, 0, 1, 3, 1, 0, cv.BORDER_DEFAULT);
+  return { gray, gx, gy };
+}
+
 /**
- * 单边直线拟合（TLS）：沿候选边（略外延）做垂直带采样，收集边缘像素后用
- * 2x2 协方差最大特征向量拟合主方向。命中点太少、或残差过大（弯曲书脊/噪声
- * 导致点沿边不成直线）判为不可靠，返回 null 供调用方回退。
+ * 单边亚像素拟合：沿边逐点取法向 ±R 的梯度幅值，先找峰值再用「峰值邻域内的梯度加权重心」
+ * 定位真实边缘位置（对称权重，不会像「带内最近边缘像素」那样被膨胀/单侧纹理带偏），
+ * 再对点集做 TLS 直线拟合。命中率或直线残差不过关返回 null 供调用方回退。
  */
+function fitEdgeLineSubpixel(gx: any, gy: any, a: Point, b: Point, W: number, H: number) {
+  const dx = b.x - a.x;
+  const dy = b.y - a.y;
+  const len = Math.hypot(dx, dy);
+  if (len < 16) return null;
+  const nx = -dy / len;
+  const ny = dx / len;
+  const R = 5; // 法向搜索半径（像素）
+  const steps = Math.max(32, Math.min(480, Math.round(len)));
+  const magAt = (x: number, y: number) => {
+    const xi = Math.round(x);
+    const yi = Math.round(y);
+    if (xi < 1 || yi < 1 || xi >= W - 1 || yi >= H - 1) return -1;
+    return Math.hypot(gx.floatPtr(yi, xi)[0], gy.floatPtr(yi, xi)[0]);
+  };
+  const pts: number[] = [];
+  let attempted = 0;
+  for (let s = 0; s <= steps; s++) {
+    // 略外延（-0.08 ~ 1.08），让被裁角/圆角的边有向内延续
+    const t = -0.08 + 1.16 * (s / steps);
+    const px = a.x + dx * t;
+    const py = a.y + dy * t;
+    attempted++;
+    let peak = 0;
+    for (let d = -R; d <= R; d++) {
+      const m = magAt(px + nx * d, py + ny * d);
+      if (m > peak) peak = m;
+    }
+    if (peak < 10) continue; // 法向没有明显阶跃（纯纹理/空白）
+    let wsum = 0;
+    let dsum = 0;
+    for (let d = -R; d <= R; d++) {
+      const m = magAt(px + nx * d, py + ny * d);
+      if (m <= 0) continue;
+      const w = m - 0.35 * peak;
+      if (w > 0) {
+        wsum += w;
+        dsum += w * d;
+      }
+    }
+    if (wsum <= 0) continue;
+    const d0 = dsum / wsum;
+    pts.push(px + nx * d0, py + ny * d0);
+  }
+  // 命中率不足（文字纹理/弯曲边）：判为不可靠
+  if (pts.length < 24 || pts.length / 2 < attempted * 0.45) return null;
+  // 两轮稳健 TLS：第一轮拟合后剔除残差异常点（手指/阴影/圆角造成的离群点），再拟合
+  let fit = tlsFit(pts);
+  if (!fit) return null;
+  for (let pass = 0; pass < 2; pass++) {
+    const keep: number[] = [];
+    let kept = 0;
+    for (let i = 0; i < pts.length; i += 2) {
+      const r = pointToLineDist(pts[i], pts[i + 1], fit!.x0, fit!.y0, fit!.vx, fit!.vy);
+      if (r <= Math.max(1.5, fit!.err * 1.8)) {
+        keep.push(pts[i], pts[i + 1]);
+        kept++;
+      }
+    }
+    if (kept < 16 || kept === pts.length / 2) break;
+    const next = tlsFit(keep);
+    if (!next) break;
+    fit = next;
+  }
+  if (fit.err > 3) return null; // 亚像素精修要求直线性更严（弯曲边回退到粗拟合）
+  return { x0: fit.x0, y0: fit.y0, vx: fit.vx, vy: fit.vy };
+}
+
+/** 点集（[x0,y0,x1,y1,...]）的 TLS 最小二乘直线拟合 + 平均残差 */
+function tlsFit(pts: number[]): { x0: number; y0: number; vx: number; vy: number; err: number } | null {
+  const n = pts.length / 2;
+  if (n < 4) return null;
+  let cx = 0;
+  let cy = 0;
+  for (let i = 0; i < n; i++) {
+    cx += pts[i * 2];
+    cy += pts[i * 2 + 1];
+  }
+  cx /= n;
+  cy /= n;
+  let sxx = 0;
+  let sxy = 0;
+  let syy = 0;
+  for (let i = 0; i < n; i++) {
+    const ddx = pts[i * 2] - cx;
+    const ddy = pts[i * 2 + 1] - cy;
+    sxx += ddx * ddx;
+    sxy += ddx * ddy;
+    syy += ddy * ddy;
+  }
+  const lam = (sxx + syy) / 2 + Math.sqrt(Math.pow((sxx - syy) / 2, 2) + sxy * sxy);
+  let vx = sxy;
+  let vy = lam - sxx;
+  const vLen = Math.hypot(vx, vy) || 1;
+  vx /= vLen;
+  vy /= vLen;
+  let err = 0;
+  for (let i = 0; i < n; i++) err += pointToLineDist(pts[i * 2], pts[i * 2 + 1], cx, cy, vx, vy);
+  return { x0: cx, y0: cy, vx, vy, err: err / n };
+}
+
+/** 回退用粗拟合：在（未膨胀）边缘图上找带内最近的边缘像素后 TLS 拟合 */
 function fitEdgeLine(edges: any, a: Point, b: Point, W: number, H: number) {
   const dx = b.x - a.x;
   const dy = b.y - a.y;
@@ -439,35 +667,9 @@ function fitEdgeLine(edges: any, a: Point, b: Point, W: number, H: number) {
     if (found) pts.push(bx, by);
   }
   if (pts.length < Math.max(12, len * 0.12)) return null;
-  // TLS 主方向：协方差最大特征向量
-  const n = pts.length / 2;
-  let cx = 0, cy = 0;
-  for (let i = 0; i < n; i++) {
-    cx += pts[i * 2];
-    cy += pts[i * 2 + 1];
-  }
-  cx /= n;
-  cy /= n;
-  let sxx = 0, sxy = 0, syy = 0;
-  for (let i = 0; i < n; i++) {
-    const ddx = pts[i * 2] - cx;
-    const ddy = pts[i * 2 + 1] - cy;
-    sxx += ddx * ddx;
-    sxy += ddx * ddy;
-    syy += ddy * ddy;
-  }
-  const lam = (sxx + syy) / 2 + Math.sqrt(Math.pow((sxx - syy) / 2, 2) + sxy * sxy);
-  let vx = sxy;
-  let vy = lam - sxx;
-  const vLen = Math.hypot(vx, vy) || 1;
-  vx /= vLen;
-  vy /= vLen;
-  // 残差：平均点到线距离，>7px 判为不可靠（防止弯曲边把方向带偏）
-  let err = 0;
-  for (let i = 0; i < n; i++) err += pointToLineDist(pts[i * 2], pts[i * 2 + 1], cx, cy, vx, vy);
-  err /= n;
-  if (err > 7) return null;
-  return { x0: cx, y0: cy, vx, vy };
+  const fit = tlsFit(pts);
+  if (!fit || fit.err > 7) return null;
+  return { x0: fit.x0, y0: fit.y0, vx: fit.vx, vy: fit.vy };
 }
 
 /** 两直线（过点 + 方向）交点；近平行返回 null */
@@ -499,14 +701,28 @@ function nearestHarris(q: Point, corners: Point[], W: number, H: number, radius:
 }
 
 /**
- * 角点外推精修：对候选四边形四条边做带内边缘采样 + TLS 直线拟合，用相邻两长边求交
- * 重建角点。相比「找最近 Harris 角点」，它能外推出被遮挡/圆角/强透视下真实存在、
- * 但局部没有强角点响应的角点。每条边必须直线性可靠（残差小），交点落在合理边界内、
- * 位移不超限才采用；否则逐角回退到最近 Harris 角点 / 原角点，确保噪声不会把框算飞。
+ * 角点外推精修：对候选四边形四条边做「亚像素梯度重心」定位 + TLS 直线拟合（不可靠时回退到
+ * 边缘图带内拟合），用相邻两长边求交重建角点。相比「找最近 Harris 角点」，它能外推出被遮挡/
+ * 圆角/强透视下真实存在、但局部没有强角点响应的角点；且对称的梯度权重不会像「最近边缘像素」
+ * 那样把框整体外扩（膨胀核造成的系统性偏置）。每条边必须直线性可靠才采用；否则逐角回退到
+ * 最近 Harris 角点 / 原角点。
  */
-function extrapolateCorners(edges: any, quad: Point[], corners: Point[], W: number, H: number): Point[] {
+function extrapolateCorners(
+  edges: any,
+  gx: any,
+  gy: any,
+  quad: Point[],
+  corners: Point[],
+  W: number,
+  H: number,
+): Point[] {
   const lines: Array<{ x0: number; y0: number; vx: number; vy: number } | null> = [];
-  for (let i = 0; i < 4; i++) lines.push(fitEdgeLine(edges, quad[i], quad[(i + 1) % 4], W, H));
+  for (let i = 0; i < 4; i++) {
+    const a = quad[i];
+    const b = quad[(i + 1) % 4];
+    const sub = gx && gy ? fitEdgeLineSubpixel(gx, gy, a, b, W, H) : null;
+    lines.push(sub ?? (edges ? fitEdgeLine(edges, a, b, W, H) : null));
+  }
   const maxMove = Math.min(W, H) * 0.22;
   const margin = Math.min(W, H) * 0.2;
   const inBounds = (p: Point) => p.x > -margin && p.x < W + margin && p.y > -margin && p.y < H + margin;
@@ -550,7 +766,11 @@ export function detectQuadInMat(cv: any, src: any): DetectOutcome | null {
     const candidates: Candidate[] = [];
     // 三轮 Canny 的边缘并集（低阈值轮的弱边也保留）——Canny 用原始灰度保持对比度
     const edgesUnion = pool.add(new cv.Mat.zeros(H, W, cv.CV_8UC1));
-    strategyEdges(cv, pool, src, W, H, candidates, edgesUnion);
+    const edgesRaw = pool.add(new cv.Mat.zeros(H, W, cv.CV_8UC1));
+    strategyEdges(cv, pool, src, W, H, candidates, edgesUnion, edgesRaw);
+
+    // 亚像素边缘定位用的梯度图（未平滑到失真；3x3 高斯后 Sobel）
+    const { gray, gx, gy } = gradientMaps(cv, pool, src);
 
     // 策略 B/C/D 与兜底都基于边缘并集
     strategySaliency(cv, pool, src, norm, W, H, candidates);
@@ -558,19 +778,23 @@ export function detectQuadInMat(cv: any, src: any): DetectOutcome | null {
     const harris = strategyCorners(cv, pool, norm, W, H);
     if (harris.quad) candidates.push({ quad: harris.quad, score: 0, straight: 0.5, source: 'corners' });
 
-    // ===== 评分（全图框候选剔除：四角都贴着图像边缘的框没有信息量）=====
+    // ===== 评分 =====
+    // base：几何先验（面积/长宽比/直角/直线度）
+    // support：未膨胀边缘上的覆盖率（抑制"无中生有"）
+    // page：像不像一张纸（边内外亮度阶跃方向 + 内部亮度），压掉"锁定正文块/背景亮矩形"
     const isFullFrame = (q: Point[]) =>
       q.every((p) => p.x < 0.025 || p.x > 0.975 || p.y < 0.025 || p.y > 0.975);
+    const scoreOf = (q: Point[], straight: number) => {
+      const px = toPx(q, W, H);
+      const base = scoreQuad(px, W, H, straight);
+      if (base <= 0) return 0;
+      const support = edgeSupport(cv, edgesRaw, px);
+      const page = pageScore(gray, px, W, H);
+      return base * (0.7 + 0.3 * support) * (0.55 + 0.45 * page);
+    };
     for (const c of candidates) {
-      if (isFullFrame(c.quad)) {
-        c.score = 0;
-        continue;
-      }
-      const base = scoreQuad(toPx(c.quad, W, H), W, H, c.straight);
-      // 边缘支撑度：真实文档边必有边缘像素，抑制"无中生有"的候选；
-      // 权重 0.7+0.3 避免低对比弱边场景被一票否决
-      const support = edgeSupport(cv, edgesUnion, toPx(c.quad, W, H));
-      c.score = base * (0.7 + 0.3 * support);
+      // 全图框仍是弱先验（画面里没有可辨的纸边），但不直接判 0：留一点分参与排序
+      c.score = scoreOf(c.quad, c.straight) * (isFullFrame(c.quad) ? 0.6 : 1);
     }
     candidates.sort((a, b) => b.score - a.score);
 
@@ -604,9 +828,7 @@ export function detectQuadInMat(cv: any, src: any): DetectOutcome | null {
           { x: x0 + inset, y: y1 - inset },
         ];
         const norm = toNorm(orderQuad(unionQuad), W, H);
-        const base = scoreQuad(orderQuad(unionQuad), W, H, 0.7);
-        const support = edgeSupport(cv, edgesUnion, orderQuad(unionQuad));
-        candidates.push({ quad: norm, score: base * (0.7 + 0.3 * support), straight: 0.7, source: 'merge' });
+        candidates.push({ quad: norm, score: scoreOf(norm, 0.7), straight: 0.7, source: 'merge' });
         candidates.sort((a, b) => b.score - a.score);
       }
     }
@@ -636,16 +858,21 @@ export function detectQuadInMat(cv: any, src: any): DetectOutcome | null {
     if (candidates.length > 1 && best.score - candidates[1].score < 0.05) {
       const second = candidates[1];
       const avg = best.quad.map((p, i) => ({ x: (p.x + second.quad[i].x) / 2, y: (p.y + second.quad[i].y) / 2 }));
-      const avgScore = scoreQuad(toPx(orderQuad(avg), W, H), W, H, best.straight);
-      if (avgScore >= best.score) best = { ...best, quad: orderQuad(avg), score: avgScore };
+      const avgQuad = orderQuad(avg);
+      const avgScore = scoreOf(avgQuad, best.straight);
+      if (avgScore >= best.score) best = { ...best, quad: avgQuad, score: avgScore };
     }
 
-    // ===== 角点外推精修：相邻两长边求交重建角点（遮挡/强透视更准），
+    // ===== 角点外推精修：亚像素梯度重心拟合四条边 → 相邻两边求交重建角点，
     //       不可靠的边逐角回退到最近 Harris 角点 / 原角点 =====
-    const refinedPx = extrapolateCorners(edgesUnion, toPx(best.quad, W, H), harris.corners, W, H);
+    const refinedPx = extrapolateCorners(edgesRaw, gx, gy, toPx(best.quad, W, H), harris.corners, W, H);
     let quad = toNorm(orderQuad(refinedPx), W, H);
-    // 精修后保证有效（面积过小则回退）
-    if (polyArea(toPx(quad, W, H)) / (W * H) < 0.04) quad = best.quad;
+    // 精修后保证有效（面积过小或相对候选剧变则回退，防止噪声把框算飞）
+    const areaAfter = polyArea(toPx(quad, W, H));
+    const areaBefore = polyArea(toPx(best.quad, W, H));
+    if (areaAfter / (W * H) < 0.04 || areaAfter < areaBefore * 0.75 || areaAfter > areaBefore * 1.35) {
+      quad = best.quad;
+    }
 
     return { quad, status: 'found', confidence: +best.score.toFixed(3), elapsedMs: Math.round(performance.now() - t0) };
   } finally {
@@ -692,6 +919,40 @@ export function detectQuadInCanvas(cv: any, canvas: HTMLCanvasElement): DetectOu
     return detectQuadInMat(cv, src);
   } finally {
     src.delete();
+  }
+}
+
+/**
+ * 多尺度精修：在更高分辨率的画布上，对给定四边形重做「亚像素梯度重心拟合 + 邻边求交」。
+ * 低分辨率（480）定位 + 高分辨率精修，可消除角点量化误差（文档占画面比例越小时越明显）。
+ * 面积突变或角点位移过大（拟合不可靠）时返回 null，调用方沿用原四边形。
+ */
+export function refineQuadInCanvas(cv: any, canvas: HTMLCanvasElement, quad: Point[]): Point[] | null {
+  const W = canvas.width;
+  const H = canvas.height;
+  if (W < 96 || H < 96) return null;
+  const pool = createMatPool();
+  try {
+    const src = pool.add(
+      cv.matFromImageData(canvas.getContext('2d', { willReadFrequently: true })!.getImageData(0, 0, W, H)),
+    );
+    const { gx, gy } = gradientMaps(cv, pool, src);
+    const quadPx = toPx(quad, W, H);
+    const refined = extrapolateCorners(null, gx, gy, quadPx, [], W, H);
+    const before = polyArea(quadPx);
+    const after = polyArea(refined);
+    if (!(before > 0) || !(after > 0)) return null;
+    // 面积变化 >15% 视为拟合跑偏
+    if (after < before * 0.85 || after > before * 1.15) return null;
+    const diag = Math.hypot(W, H);
+    for (let i = 0; i < 4; i++) {
+      if (Math.hypot(refined[i].x - quadPx[i].x, refined[i].y - quadPx[i].y) > diag * 0.03) return null;
+    }
+    return toNorm(orderQuad(refined), W, H);
+  } catch {
+    return null;
+  } finally {
+    pool.dispose();
   }
 }
 

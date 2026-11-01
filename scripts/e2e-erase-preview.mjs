@@ -94,9 +94,9 @@ async function waitCanvas(page, timeout = 60000) {
   return null;
 }
 
-/** 在质心附近画三条横向笔画（笔径已调到最大） */
+/** 在质心附近画五条横向笔画（笔径已调到最大） */
 async function paintRows(page, cx, cy) {
-  for (const dy of [-0.045, 0, 0.045]) {
+  for (const dy of [-0.06, -0.03, 0, 0.03, 0.06]) {
     const info = await canvasInfo(page);
     const a = toClient(info, cx - 0.07, cy + dy);
     const b = toClient(info, cx + 0.07, cy + dy);

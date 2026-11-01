@@ -30,7 +30,7 @@ async function main() {
 
   const result = await page.evaluate(async () => {
     const { loadOpenCV } = await import('/src/utils/opencvLoader.ts');
-    const { detectQuadInCanvas } = await import('/src/utils/detect.ts');
+    const { detectQuadInCanvas, refineQuadInCanvas } = await import('/src/utils/detect.ts');
     const cv = await loadOpenCV();
 
     // ---------- 场景构造工具 ----------
@@ -193,9 +193,9 @@ async function main() {
       return out;
     };
 
-    /** 按 app 的做法缩到长边 480 再检测 */
-    const toSmall = (scene) => {
-      const s = Math.min(1, 480 / Math.max(scene.width, scene.height));
+    /** 按 app 的做法缩到长边 480 再检测（再可选 1200 精修，模拟 autoDetectPage） */
+    const toSmall = (scene, edge = 480) => {
+      const s = Math.min(1, edge / Math.max(scene.width, scene.height));
       const c = mkCanvas(Math.round(scene.width * s), Math.round(scene.height * s));
       c.getContext('2d').drawImage(scene, 0, 0, c.width, c.height);
       return c;
@@ -344,6 +344,12 @@ async function main() {
       const t0 = performance.now();
       try {
         out = detectQuadInCanvas(cv, small);
+        // 与 autoDetectPage 一致：识别成功后在 1200 长边上精修
+        if (out && out.status === 'found') {
+          const fine = toSmall(scene, 1200);
+          const refined = refineQuadInCanvas(cv, fine, out.quad);
+          if (refined) out.quad = refined;
+        }
       } catch (e) {
         out = null;
       }
