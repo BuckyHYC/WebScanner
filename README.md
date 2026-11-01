@@ -68,9 +68,27 @@ npm run preview  # 本地预览构建产物
   ollama pull longwayxu/xiaomi-ocr-0:bf16   # 约 1.8GB，需 Ollama ≥ 0.35（Qwen3.5 架构）
   powershell -ExecutionPolicy Bypass -File scripts/start-ollama-ocr.ps1
   ```
-  脚本把模型目录指向 `D:\DevTools\ollama-models`，并设置 `OLLAMA_ORIGINS=*`（浏览器直连本机服务必需，否则被 CORS 拦截）。之后在识别面板切到「本机 Xiaomi-OCR」，点「检测」确认服务就绪；服务地址与模型名可在「设置」里改。
+  脚本把模型目录指向 `D:\DevTools\ollama-models`，并把站点域名写进 `OLLAMA_ORIGINS`（浏览器直连本机服务必需，否则被 CORS 拦截）。之后在识别面板切到「本机 Xiaomi-OCR」，点「检测」确认服务就绪；服务地址与模型名可在「设置」里改。
   > **注意**：Ollama 桌面版不读 `OLLAMA_MODELS`，模型不在默认目录时它会报 `models path not accessible` 并起不来，所以必须用 `ollama serve` 启动（脚本即是）。本机已用 `D:\DevTools\ollama\start-ollama-ocr.vbs` 做成开机静默自启，日常无需手动执行。
 - 识别走 GPU 实测：单页收据约 2–3 秒、公式密集页约 14 秒（RTX 5070 Laptop，2048 长边）。
+
+#### 部署到线上后仍可连本机服务
+
+浏览器把 `http://127.0.0.1` 视为可信来源，所以 **HTTPS 站点直连本机服务不算混合内容**，已实测通过（`https://scan.ymyc.fun` → `127.0.0.1:11434`，含 0.1MB 图片的完整推理请求）。前提有两条：
+
+1. 访问者的电脑上跑着推理服务（页面代码在**访问者**的浏览器里执行，连接的是那台机器的 `127.0.0.1`）；
+2. 该页面的域名在服务的 `OLLAMA_ORIGINS` 白名单里。
+
+```powershell
+# 换域名部署时只需改这一处并重启服务
+$env:OLLAMA_MODELS='D:\DevTools\ollama-models'
+$env:OLLAMA_ORIGINS='https://scan.ymyc.fun,https://your-other-domain.com'
+& 'D:\DevTools\ollama\app\ollama.exe' serve
+```
+
+不要把 `OLLAMA_ORIGINS` 写成 `*`：那等于允许任意网站静默调用你本机的模型。未列入白名单的站点会收到 403，前端会提示把当前域名加入白名单。
+
+**适用范围**：只有装了模型的那台电脑能用。手机或别人的电脑打开同一网址，`127.0.0.1` 指向它们自己，检测会失败，此时切回「浏览器内 OCR」即可。
 
 ### 导出
 - **PDF**：A4 适配 / 原始尺寸 / 适应宽度；高·中·低质量档；自定义标题、作者元数据

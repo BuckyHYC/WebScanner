@@ -15,7 +15,9 @@ $ErrorActionPreference = 'Stop'
 
 $modelDir = 'D:\DevTools\ollama-models'
 $env:OLLAMA_MODELS = $modelDir
-$env:OLLAMA_ORIGINS = '*'
+# 放行站点白名单（逗号分隔，不含空格）。绝不要写成 '*'：那等于允许任意网站调用本机模型。
+# 部署到新域名时把新域名加进来；localhost 系列 Ollama 已内置放行，无需重复。
+$env:OLLAMA_ORIGINS = 'https://scan.ymyc.fun'
 $env:OLLAMA_HOST = '127.0.0.1:11434'
 
 New-Item -ItemType Directory -Force -Path $modelDir | Out-Null

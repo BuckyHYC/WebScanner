@@ -72,9 +72,11 @@ function describeFetchError(e: unknown, endpoint: string): string {
   const msg = e instanceof Error ? e.message : String(e);
   if (/aborted|timeout/i.test(msg)) return '推理超时，模型可能仍在加载，稍后重试或改用更小的页面';
   if (e instanceof TypeError) {
+    // 带上当前站点 origin：部署到新域名后最常见的失败原因就是没把它加进白名单
+    const origin = typeof location !== 'undefined' ? location.origin : '当前站点';
     return (
       `无法连接 ${endpoint}。请确认本机推理服务已启动；` +
-      '若服务已启动仍报此错，多为浏览器跨域限制——启动 Ollama 时需设置 OLLAMA_ORIGINS=*'
+      `若已启动仍报错，通常是跨域限制——需把 ${origin} 加入本机服务的 OLLAMA_ORIGINS 后重启服务`
     );
   }
   return msg || '未知错误';
