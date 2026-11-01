@@ -8,6 +8,8 @@
  */
 import type { Page } from '../types';
 import { renderFinal } from './render';
+import type { OcrEngine } from './ocrSettings';
+import { recognizeWithVlm, type VlmSettings } from './xiaomiOcr';
 
 type OcrInstance = Awaited<ReturnType<typeof import('@gutenye/ocr-browser').default.create>>;
 
@@ -76,6 +78,35 @@ export function loadOcrEngine(): Promise<OcrInstance> {
 export interface OcrOutcome {
   text: string;
   lines: number;
+}
+
+/** 识别结果 + 产出它的引擎（写入页面时一并持久化，便于 UI 说明来源） */
+export interface OcrRunOutcome extends OcrOutcome {
+  engine: OcrEngine;
+}
+
+/** 按引擎预热：PaddleOCR 需要把 42MB 模型载入内存；本机 VLM 由服务端常驻，无需预热 */
+export async function prepareOcr(engine: OcrEngine): Promise<void> {
+  if (engine === 'paddle') await loadOcrEngine();
+}
+
+/**
+ * 统一识别入口：按引擎分派。
+ * - paddle：浏览器内检测+识别，逐行文本
+ * - vlm：本机 Xiaomi-OCR-0 服务，整页 Markdown
+ */
+export async function recognizePageByEngine(
+  page: Page,
+  engine: OcrEngine,
+  vlm: VlmSettings,
+  signal?: AbortSignal,
+): Promise<OcrRunOutcome> {
+  if (engine === 'vlm') {
+    const outcome = await recognizeWithVlm(page, vlm, signal);
+    return { ...outcome, engine };
+  }
+  const outcome = await recognizePage(page);
+  return { ...outcome, engine };
 }
 
 async function detectOnce(page: Page): Promise<OcrOutcome> {

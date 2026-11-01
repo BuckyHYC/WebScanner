@@ -2,7 +2,9 @@ import { useCallback, useEffect, useRef, useState } from 'react';
 import type { Page } from '../types';
 import { useStore } from '../store/useStore';
 import { renderFinal } from '../utils/render';
-import { loadOcrEngine, recognizePage } from '../utils/ocrEngine';
+import { prepareOcr, recognizePageByEngine } from '../utils/ocrEngine';
+import { loadOcrPrefs, saveOcrPrefs, type OcrEngine, type OcrPrefs } from '../utils/ocrSettings';
+import { checkVlmService, type ServiceStatus } from '../utils/xiaomiOcr';
 import { downloadBlob } from '../utils/exporter';
 
 interface Props {
@@ -12,12 +14,18 @@ interface Props {
 /** 提取错误关键信息（toast 展示用，便于不同浏览器环境下定位） */
 function errMsg(e: unknown): string {
   const msg = e instanceof Error ? e.message : String(e);
-  return msg.length > 80 ? msg.slice(0, 80) + '…' : msg || '未知错误';
+  return msg.length > 160 ? msg.slice(0, 160) + '…' : msg || '未知错误';
 }
+
+const ENGINE_LABEL: Record<OcrEngine, string> = {
+  paddle: '浏览器内 OCR',
+  vlm: '本机 Xiaomi-OCR',
+};
 
 /**
  * 文字识别工作台（第④步）：
  * - 左侧显示当前页处理后画面（裁剪+滤镜+擦除+旋转），右侧结果面板
+ * - 双引擎：浏览器内 PaddleOCR（离线、逐行文本）/ 本机 Xiaomi-OCR-0 服务（整页 Markdown）
  * - 单页识别 / 全部页批量（复用导出进度遮罩，可取消）
  * - 结果随草稿持久化；图片再编辑时由 useStore 自动标记「已过期」
  * - 支持复制、下载 TXT（单页 / 多页合并）
@@ -26,11 +34,44 @@ export default function OcrStage({ page }: Props) {
   const containerRef = useRef<HTMLDivElement>(null);
   const displayRef = useRef<HTMLCanvasElement>(null);
   const cancelRef = useRef(false);
+  const abortRef = useRef<AbortController | null>(null);
   const [busy, setBusy] = useState<string | null>(null); // 忙碌状态文案（null=空闲）
   const [copied, setCopied] = useState(false);
 
+  const [prefs, setPrefs] = useState<OcrPrefs>(() => loadOcrPrefs());
+  const [showConfig, setShowConfig] = useState(false);
+  const [svc, setSvc] = useState<ServiceStatus | null>(null);
+  const [checking, setChecking] = useState(false);
+
   const ocr = page.ocr ?? null;
   const geoKey = JSON.stringify([page.corners, page.rotation, page.flipH, page.flipV, page.fineRotate, page.polygon, page.filter, page.eraseMask]);
+
+  /** 更新并持久化引擎偏好 */
+  const updatePrefs = (patch: Partial<OcrPrefs>) => {
+    setPrefs((prev) => {
+      const next: OcrPrefs = { ...prev, ...patch, vlm: patch.vlm ?? prev.vlm };
+      saveOcrPrefs(next);
+      return next;
+    });
+  };
+
+  /** 探测本机推理服务（仅在选用 VLM 时才有意义） */
+  const probeService = useCallback(async (vlm = prefs.vlm) => {
+    setChecking(true);
+    try {
+      const status = await checkVlmService(vlm);
+      setSvc(status);
+      return status;
+    } finally {
+      setChecking(false);
+    }
+  }, [prefs.vlm]);
+
+  // 切到本机引擎且尚未探测过时，自动检测一次服务连通性
+  useEffect(() => {
+    if (prefs.engine === 'vlm' && !svc && !checking) void probeService();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [prefs.engine]);
 
   // 渲染当前页处理结果预览（切页/任何视觉编辑时刷新）
   const rebuild = useCallback(async () => {
@@ -55,30 +96,39 @@ export default function OcrStage({ page }: Props) {
   }, [rebuild]);
 
   /** 把识别结果写入页面（不进撤销历史，避免每次识别污染操作栈） */
-  const commit = (pageId: string, text: string) => {
-    useStore.getState().updatePage(pageId, { ocr: { text, stale: false, updatedAt: Date.now() } }, false);
+  const commit = (pageId: string, text: string, engine: OcrEngine) => {
+    useStore.getState().updatePage(pageId, { ocr: { text, stale: false, updatedAt: Date.now(), engine } }, false);
   };
 
-  /** 识别单页（含引擎懒加载），返回是否成功 */
-  const runOne = async (p: Page): Promise<boolean> => {
-    const outcome = await recognizePage(p);
-    commit(p.id, outcome.text);
+  /** 识别单页（含引擎懒加载），返回是否识别到内容 */
+  const runOne = async (p: Page, signal?: AbortSignal): Promise<boolean> => {
+    const outcome = await recognizePageByEngine(p, prefs.engine, prefs.vlm, signal);
+    commit(p.id, outcome.text, outcome.engine);
     return outcome.lines > 0;
   };
 
   // 单页识别
   const recognizeCurrent = async () => {
     if (busy) return;
-    setBusy('正在加载识别引擎…');
+    const engine = prefs.engine;
+    if (engine === 'vlm' && svc && !svc.ok) {
+      useStore.getState().toast('本机识别服务不可用，请先启动服务', 'error');
+      return;
+    }
+    const ctrl = new AbortController();
+    abortRef.current = ctrl;
+    setBusy(engine === 'vlm' ? '连接本机模型…' : '正在加载识别引擎…');
     try {
-      await loadOcrEngine();
+      await prepareOcr(engine);
       setBusy('识别中…');
-      const hasText = await runOne(page);
+      const hasText = await runOne(page, ctrl.signal);
       if (!hasText) useStore.getState().toast('未识别到文字');
+      if (engine === 'vlm') void probeService(); // 成功后刷新状态（首次请求会加载模型）
     } catch (e) {
       console.warn('OCR 识别失败', e);
       useStore.getState().toast(`识别失败：${errMsg(e)}`, 'error');
     } finally {
+      abortRef.current = null;
       setBusy(null);
     }
   };
@@ -89,16 +139,20 @@ export default function OcrStage({ page }: Props) {
     if (s.exporting?.active || busy) return;
     const pages = s.pages;
     if (pages.length === 0) return;
+    const engine = prefs.engine;
     cancelRef.current = false;
+    const ctrl = new AbortController();
+    abortRef.current = ctrl;
     s.setExportCancel(() => {
       cancelRef.current = true;
+      ctrl.abort(new Error('cancel'));
     });
     setBusy('批量识别中…');
     let done = 0;
     let withText = 0;
     let failed = 0;
     try {
-      await loadOcrEngine();
+      await prepareOcr(engine);
       for (const p of useStore.getState().pages) {
         if (cancelRef.current) break;
         // 页可能在识别过程中被删除
@@ -108,8 +162,9 @@ export default function OcrStage({ page }: Props) {
         }
         useStore.getState().setExporting({ active: true, done, total: pages.length, label: `OCR 识别中（${p.name}）` });
         try {
-          if (await runOne(p)) withText++;
+          if (await runOne(p, ctrl.signal)) withText++;
         } catch (e) {
+          if (cancelRef.current) break;
           /* 单页失败不中断批量 */
           failed++;
           console.warn(`「${p.name}」识别失败`, e);
@@ -126,8 +181,9 @@ export default function OcrStage({ page }: Props) {
       }
     } catch (e) {
       console.warn('批量 OCR 失败', e);
-      useStore.getState().toast(`识别引擎加载失败：${errMsg(e)}`, 'error');
+      useStore.getState().toast(`识别失败：${errMsg(e)}`, 'error');
     } finally {
+      abortRef.current = null;
       setBusy(null);
       useStore.getState().setExporting(null);
       useStore.getState().setExportCancel(null);
@@ -168,6 +224,10 @@ export default function OcrStage({ page }: Props) {
   const hasMultiText = useStore((s) => s.pages.filter((p) => p.ocr?.text).length > 1);
   const exportingActive = useStore((s) => !!s.exporting?.active);
   const text = ocr?.text ?? '';
+  const isVlm = prefs.engine === 'vlm';
+
+  /** 服务状态指示点 */
+  const dotClass = checking ? 'bg-slate-500 animate-pulse' : !svc ? 'bg-slate-600' : svc.ok ? 'bg-emerald-500' : 'bg-rose-500';
 
   return (
     <div className="h-full flex flex-col lg:flex-row min-h-0">
@@ -181,6 +241,70 @@ export default function OcrStage({ page }: Props) {
 
       {/* 右：识别结果面板 */}
       <div className="lg:w-96 shrink-0 border-t lg:border-t-0 lg:border-l border-ink-700 bg-ink-900 flex flex-col min-h-0">
+        {/* 引擎选择 */}
+        <div className="p-3 pb-0">
+          <div className="flex rounded-lg bg-ink-800 p-0.5 text-xs">
+            {(Object.keys(ENGINE_LABEL) as OcrEngine[]).map((k) => (
+              <button
+                key={k}
+                className={`flex-1 rounded-md px-2 py-1.5 transition-colors ${
+                  prefs.engine === k ? 'bg-accent text-white font-medium' : 'text-slate-400 hover:text-slate-200'
+                }`}
+                disabled={!!busy}
+                onClick={() => updatePrefs({ engine: k })}
+              >
+                {ENGINE_LABEL[k]}
+              </button>
+            ))}
+          </div>
+        </div>
+
+        {/* 本机服务配置（仅 VLM 引擎） */}
+        {isVlm && (
+          <div className="px-3 pt-2 space-y-1.5">
+            <div className="flex items-center gap-1.5 text-xs text-slate-400">
+              <span className={`w-1.5 h-1.5 rounded-full shrink-0 ${dotClass}`} />
+              <span className="flex-1 truncate" title={svc?.detail ?? ''}>
+                {checking ? '检测中…' : (svc?.detail ?? '未检测')}
+              </span>
+              <button className="btn-ghost px-1.5 py-0.5 text-xs" disabled={checking || !!busy} onClick={() => void probeService()}>
+                检测
+              </button>
+              <button className="btn-ghost px-1.5 py-0.5 text-xs" onClick={() => setShowConfig((v) => !v)}>
+                {showConfig ? '收起' : '设置'}
+              </button>
+            </div>
+            {showConfig && (
+              <div className="space-y-1.5 rounded-lg bg-ink-800/60 p-2">
+                <label className="block text-[11px] text-slate-500">
+                  服务地址
+                  <input
+                    className="mt-0.5 w-full rounded bg-ink-900 border border-ink-600 px-2 py-1 text-xs text-slate-200 outline-none focus:border-accent/60"
+                    value={prefs.vlm.endpoint}
+                    spellCheck={false}
+                    onChange={(e) => updatePrefs({ vlm: { ...prefs.vlm, endpoint: e.target.value } })}
+                    onBlur={() => setSvc(null)}
+                  />
+                </label>
+                <label className="block text-[11px] text-slate-500">
+                  模型名
+                  <input
+                    className="mt-0.5 w-full rounded bg-ink-900 border border-ink-600 px-2 py-1 text-xs text-slate-200 outline-none focus:border-accent/60"
+                    value={prefs.vlm.model}
+                    spellCheck={false}
+                    onChange={(e) => updatePrefs({ vlm: { ...prefs.vlm, model: e.target.value } })}
+                    onBlur={() => setSvc(null)}
+                  />
+                </label>
+                <p className="text-[11px] leading-relaxed text-slate-500">
+                  需本机运行 Ollama（<code className="text-slate-400">ollama serve</code>）并已拉取该模型。浏览器直连本机服务时，Ollama 需设置{' '}
+                  <code className="text-slate-400">OLLAMA_ORIGINS=*</code>。
+                </p>
+              </div>
+            )}
+          </div>
+        )}
+
         {/* 操作区 */}
         <div className="p-3 flex flex-wrap gap-2 border-b border-ink-800">
           <button className="btn-primary flex-1 min-w-[7rem]" disabled={!!busy || exportingActive} onClick={() => void recognizeCurrent()}>
@@ -202,6 +326,7 @@ export default function OcrStage({ page }: Props) {
             <>
               <div className="flex items-center gap-2">
                 <span className="panel-title flex-1">识别结果</span>
+                {ocr?.engine === 'vlm' && <span className="text-[11px] text-slate-500">Markdown</span>}
                 <button className="btn-ghost text-xs px-2 py-1" onClick={() => void copyText()} disabled={!text}>
                   {copied ? '已复制' : '复制'}
                 </button>
@@ -227,7 +352,9 @@ export default function OcrStage({ page }: Props) {
               </span>
               {!busy && (
                 <span className="text-xs text-slate-600">
-                  首次使用需加载本地识别模型（约 42MB，仅此一次），之后浏览器缓存
+                  {isVlm
+                    ? '由本机 Xiaomi-OCR-0 输出整页 Markdown（含表格/公式），首次请求需加载模型'
+                    : '首次使用需加载本地识别模型（约 42MB，仅此一次），之后浏览器缓存'}
                 </span>
               )}
             </div>
