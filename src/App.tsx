@@ -201,7 +201,7 @@ export default function App() {
       {/* 拖拽提示遮罩 */}
       {dragging && (
         <div className="fixed inset-0 z-[95] flex items-center justify-center bg-accent/20 border-4 border-dashed border-accent pointer-events-none">
-          <div className="rounded-xl bg-ink-900/90 px-6 py-4 text-lg">松开以导入图片</div>
+          <div className="rounded-xl bg-ink-900/90 px-6 py-4 text-lg">松开以导入文件（图片 / PDF）</div>
         </div>
       )}
 
