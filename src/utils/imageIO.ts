@@ -1,11 +1,15 @@
 /**
- * 图像导入：多格式解码（JPG/PNG/WebP/BMP/GIF 原生，HEIC 用 heic2any，TIFF 用 UTIF），
- * 并生成低清编辑预览与缩略图（导入时一次完成，交互全程使用低清保证流畅）。
- * 多页 TIFF 拆分为多帧（多页扫描件常见，逐帧建页）。
+ * 图像导入：多格式解码（JPG/PNG/WebP/BMP/GIF 原生，HEIC 用 heic2any，TIFF 用 UTIF，
+ * PDF 用 pdf.js 逐页栅格化），并生成低清编辑预览与缩略图（导入时一次完成，交互全程使用低清保证流畅）。
+ * 多页 TIFF / 多页 PDF 拆分为多帧（多页扫描件常见，逐帧建页）。
  */
 
 function isHeic(file: File): boolean {
   return /hei[cf]/i.test(file.type) || /\.hei[cf]$/i.test(file.name);
+}
+
+function isPdf(file: File): boolean {
+  return file.type === 'application/pdf' || /\.pdf$/i.test(file.name);
 }
 
 function isTiff(file: File): boolean {
@@ -139,8 +143,17 @@ export async function decodeImageFile(file: File): Promise<DecodedImage> {
   return blobToDecoded(blob, needsReencode);
 }
 
-/** 解码文件为（可能多帧的）页面结构：多页 TIFF 逐帧拆页，其余单帧 */
-export async function decodeImageFiles(file: File): Promise<DecodedImage[]> {
+/** 解码文件为（可能多帧的）页面结构：多页 TIFF / PDF 逐页拆页，其余单帧 */
+export async function decodeImageFiles(
+  file: File,
+  onProgress?: (done: number, total: number) => void,
+): Promise<DecodedImage[]> {
+  if (isPdf(file)) {
+    const { pdfToJpegBlobs } = await import('./pdfImport');
+    const { blobs } = await pdfToJpegBlobs(file, (p) => onProgress?.(p.done, p.total));
+    if (blobs.length === 0) throw new Error('PDF 没有可渲染的页面');
+    return Promise.all(blobs.map((b) => blobToDecoded(b, false)));
+  }
   if (isTiff(file)) {
     try {
       const blobs = await tiffToJpegBlobs(file);
@@ -152,4 +165,13 @@ export async function decodeImageFiles(file: File): Promise<DecodedImage[]> {
     }
   }
   return [await decodeImageFile(file)];
+}
+
+/** 文件是否为支持导入的类型（图片 / TIFF / HEIC / PDF） */
+export function isSupportedImportFile(file: File): boolean {
+  return (
+    file.type.startsWith('image/') ||
+    /\.(jpe?g|png|webp|bmp|gif|tiff?|hei[cf])$/i.test(file.name) ||
+    isPdf(file)
+  );
 }

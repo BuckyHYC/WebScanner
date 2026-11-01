@@ -51,6 +51,8 @@ export default defineConfig({
           if (!id.includes('node_modules')) return undefined;
           // OCR 引擎独立分包（懒加载），并经 globIgnores 排除出 PWA precache
           if (id.includes('@gutenye') || id.includes('onnxruntime') || id.includes('opencv-js')) return 'ocr';
+          // PDF 栅格化解析器独立分包：只有导入 PDF 时才下载
+          if (id.includes('pdfjs-dist')) return 'pdf';
           if (id.includes('pdf-lib') || id.includes('jszip')) return 'exporter';
           if (id.includes('/react') || id.includes('react-dom') || id.includes('scheduler') || id.includes('zustand')) return 'vendor';
           return undefined;

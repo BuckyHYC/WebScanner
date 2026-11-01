@@ -40,7 +40,7 @@ function ViewFinder() {
   );
 }
 
-const FORMATS = ['JPG', 'PNG', 'WebP', 'BMP', 'GIF', 'TIFF', 'HEIC'];
+const FORMATS = ['JPG', 'PNG', 'WebP', 'BMP', 'GIF', 'TIFF', 'HEIC', 'PDF'];
 
 interface ConfirmState {
   title: string;
@@ -310,7 +310,7 @@ export default function Home() {
       <input
         ref={inputRef}
         type="file"
-        accept="image/*,.heic,.heif,.tif,.tiff"
+        accept="image/*,.heic,.heif,.tif,.tiff,.pdf,application/pdf"
         multiple
         className="hidden"
         onChange={(e) => {

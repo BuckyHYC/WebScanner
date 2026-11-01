@@ -194,7 +194,7 @@ export default function Workspace() {
       <input
         id="ws-file-input"
         type="file"
-        accept="image/*,.heic,.heif,.tif,.tiff"
+        accept="image/*,.heic,.heif,.tif,.tiff,.pdf,application/pdf"
         multiple
         className="hidden"
         onChange={(e) => {

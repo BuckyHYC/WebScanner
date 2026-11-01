@@ -7,6 +7,9 @@ public/opencv/
 # OCR 模型与 onnxruntime wasm 由 scripts/copy-ocr.js 从 node_modules 生成
 public/ocr/
 
+# pdf.js 的 cMap / 标准字体由 scripts/copy-pdfjs.js 从 node_modules 生成
+public/pdfjs/
+
 # 构建产物
 dist/
 dist-ssr/
