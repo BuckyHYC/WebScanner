@@ -72,6 +72,16 @@ npm run preview  # 本地预览构建产物
   > **注意**：Ollama 桌面版不读 `OLLAMA_MODELS`，模型不在默认目录时它会报 `models path not accessible` 并起不来，所以必须用 `ollama serve` 启动（脚本即是）。本机已用 `D:\DevTools\ollama\start-ollama-ocr.vbs` 做成开机静默自启，日常无需手动执行。
 - 识别走 GPU 实测：单页收据约 2–3 秒、公式密集页约 14 秒（RTX 5070 Laptop，2048 长边）。
 
+#### 文档对话（识别后可追问）
+
+右栏切到「文档对话」，就能就当前页向模型连续提问（问金额、日期、条款、表格里的某个值）。对话可用性与识别共用同一套服务配置。
+
+- **图片只在第一次提问时发送**：后续轮次纯文本，但模型仍能引用图中内容（历史里的图片 token 持续有效），每轮只增约 30–50 tokens，实测第二轮不带图仍答对了图中日期
+- 对话随草稿持久化，刷新/切页不丢；**每页一条独立对话线**
+- 超过 12 轮自动丢弃中间轮次，首问首答固定保留 —— 图片在首问里，丢了它模型就看不到文档
+- 页面图像被编辑后提示「回答可能不准确」，清空对话即可重新开始
+- 模型是 0.8B 的 OCR 专用 VLM，**指代推理能力有限**：问题要问完整（「总金额是多少」✓ /「那它呢」✗）；多步计算偶有偏差
+
 #### 部署到线上后仍可连本机服务
 
 浏览器把 `http://127.0.0.1` 视为可信来源，所以 **HTTPS 站点直连本机服务不算混合内容**，已实测通过（`https://scan.ymyc.fun` → `127.0.0.1:11434`，含 0.1MB 图片的完整推理请求）。前提有两条：
@@ -117,6 +127,7 @@ $env:OLLAMA_ORIGINS='https://scan.ymyc.fun,https://your-other-domain.com'
 | TIFF | UTIF（动态 import） |
 | 草稿 | IndexedDB |
 | 文字识别 | PaddleOCR（onnxruntime-web，浏览器内）/ Xiaomi-OCR-0 0.8B VLM（本机 Ollama，OpenAI 兼容接口） |
+| 文档对话 | 同一本机 VLM 服务，多轮 chat/completions（图片仅首轮注入） |
 
 ## 目录结构
 
@@ -135,7 +146,9 @@ src/
 │   ├── importer.ts         # 导入流程 + 后台自动检测
 │   ├── exporter.ts         # PDF / JPG / ZIP 导出
 │   ├── ocrEngine.ts        # OCR 引擎分派（浏览器内 PaddleOCR / 本机 VLM）
-│   ├── xiaomiOcr.ts        # 本机 Xiaomi-OCR-0 调用层（提示词/解码参数对齐上游）
+│   ├── xiaomiOcr.ts        # 本机 Xiaomi-OCR-0 调用层（识别 + 多轮对话，参数对齐上游）
+│   ├── otsl.ts             # OTSL 表格标记 → HTML（移植上游 postprocess）
+│   ├── document.ts         # 整页 Markdown 后处理（数学定界符、重复截断、OTSL）
 │   ├── ocrSettings.ts      # OCR 引擎偏好持久化（localStorage）
 │   └── idb.ts              # IndexedDB 草稿
 ├── hooks/useShortcuts.ts   # 键盘快捷键

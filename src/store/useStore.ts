@@ -1,6 +1,6 @@
 import { create } from 'zustand';
 import { subscribeWithSelector } from 'zustand/middleware';
-import type { DraftMeta, FilterState, Page, Point, Toast } from '../types';
+import type { ChatTurn, DraftMeta, FilterState, Page, Point, Toast } from '../types';
 import { uid } from '../utils/uid';
 import { listDrafts } from '../utils/draftsDb';
 
@@ -52,6 +52,10 @@ interface Store {
   movePage: (from: number, to: number) => void;
   setCurrent: (i: number) => void;
   updatePage: (id: string, patch: Partial<Page>, history?: boolean) => void;
+  /** 追加一条对话消息（不进撤销栈） */
+  appendChatTurn: (id: string, turn: ChatTurn) => void;
+  /** 清空该页对话并解除过期标记 */
+  clearChat: (id: string) => void;
   updateFilter: (id: string, patch: Partial<FilterState>, history?: boolean) => void;
   applyFilterToAll: () => void;
   autoEnhanceAll: () => void;
@@ -175,12 +179,25 @@ export const useStore = create<Store>()(subscribeWithSelector((set, get) => ({
       pages: s.pages.map((p) => {
         if (p.id !== id) return p;
         const next: Page = { ...p, ...patch };
-        // 编辑了视觉相关字段且未直接写入新 OCR 结果 → 已有结果标记过期
-        if (!('ocr' in patch) && p.ocr?.text && !p.ocr.stale && OCR_STALE_KEYS.some((k) => k in patch)) {
-          next.ocr = { ...p.ocr, stale: true };
+        // 编辑了视觉相关字段且未直接写入新 OCR 结果 → 已有结果标记过期，对话同样失效
+        if (!('ocr' in patch) && OCR_STALE_KEYS.some((k) => k in patch)) {
+          if (p.ocr?.text && !p.ocr.stale) next.ocr = { ...p.ocr, stale: true };
+          if (p.chat?.length && !p.chatStale) next.chatStale = true;
         }
         return next;
       }),
+    }));
+  },
+
+  appendChatTurn: (id, turn) => {
+    set((s) => ({
+      pages: s.pages.map((p) => (p.id === id ? { ...p, chat: [...(p.chat ?? []), turn] } : p)),
+    }));
+  },
+
+  clearChat: (id) => {
+    set((s) => ({
+      pages: s.pages.map((p) => (p.id === id ? { ...p, chat: null, chatStale: false } : p)),
     }));
   },
 
@@ -191,8 +208,9 @@ export const useStore = create<Store>()(subscribeWithSelector((set, get) => ({
         if (p.id !== id) return p;
         const filter = { ...p.filter, ...patch };
         const next: Page = { ...p, filter };
-        // 滤镜变化也会使已有 OCR 结果过期
+        // 滤镜变化也会使已有 OCR 结果与对话失效
         if (p.ocr?.text && !p.ocr.stale) next.ocr = { ...p.ocr, stale: true };
+        if (p.chat?.length && !p.chatStale) next.chatStale = true;
         return next;
       }),
     }));
@@ -210,6 +228,7 @@ export const useStore = create<Store>()(subscribeWithSelector((set, get) => ({
           filter: { ...cur.filter },
           filterName: cur.filterName,
           ocr: p.ocr?.text && !p.ocr.stale ? { ...p.ocr, stale: true } : p.ocr,
+          chatStale: p.chat?.length && !p.chatStale ? true : p.chatStale,
         })),
       };
     });
@@ -223,6 +242,7 @@ export const useStore = create<Store>()(subscribeWithSelector((set, get) => ({
         filter: defaultFilter('magic'),
         filterName: filterLabel('magic'),
         ocr: p.ocr?.text && !p.ocr.stale ? { ...p.ocr, stale: true } : p.ocr,
+        chatStale: p.chat?.length && !p.chatStale ? true : p.chatStale,
       })),
     }));
   },

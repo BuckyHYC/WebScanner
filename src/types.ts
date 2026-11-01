@@ -23,6 +23,13 @@ export interface FilterState {
   cValue: number;     // bw 自适应阈值常数 C（-10~40）
 }
 
+/** 对话轮次（与本机 VLM 引擎就当前页问答） */
+export interface ChatTurn {
+  role: 'user' | 'assistant';
+  content: string;
+  at: number;
+}
+
 /** 一页文档 */
 export interface Page {
   id: string;
@@ -51,6 +58,10 @@ export interface Page {
   eraseMask?: string | null;
   /** OCR 识别结果（null/undefined=未识别过）；stale=识别后图片又被编辑，结果可能过期；engine=产出它的引擎 */
   ocr?: { text: string; stale: boolean; updatedAt: number; engine?: 'paddle' | 'vlm' } | null;
+  /** 本机 VLM 对话历史（空/undefined=未开始） */
+  chat?: ChatTurn[] | null;
+  /** 对话开始后页面图像又被编辑 → 回答可能不准，建议清空重开 */
+  chatStale?: boolean;
 }
 
 /** 草稿元信息（首页列表用，页面数据另存 pages 表） */

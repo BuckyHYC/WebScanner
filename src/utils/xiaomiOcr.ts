@@ -8,7 +8,7 @@
  *
  * 服务端缺省为本机 Ollama（127.0.0.1:11434），也兼容 vLLM / SGLang（端口 8000）。
  */
-import type { Page } from '../types';
+import type { ChatTurn, Page } from '../types';
 import { renderFinal } from './render';
 import { finalizeDocument } from './document';
 
@@ -130,36 +130,29 @@ export interface VlmOcrOutcome {
   lines: number;
 }
 
-/** 渲染页面的处理结果（裁剪+滤镜+擦除+旋转），长边限制到 2048 后转 PNG dataURL */
-async function renderPageDataUrl(page: Page): Promise<string> {
+/** 渲染页面的处理结果（裁剪+滤镜+擦除+旋转），长边限制到 2048 后转 PNG dataURL。识别与对话共用 */
+export async function renderPageImage(page: Page): Promise<string> {
   const canvas = await renderFinal(page, MAX_EDGE);
   return canvas.toDataURL('image/png');
 }
 
-/** 识别一页：整页文档解析，返回 Markdown */
-export async function recognizeWithVlm(page: Page, settings: VlmSettings, signal?: AbortSignal): Promise<VlmOcrOutcome> {
-  const dataUrl = await renderPageDataUrl(page);
-  const payload = {
-    model: settings.model.trim(),
-    messages: [
-      {
-        role: 'user',
-        content: [
-          { type: 'image_url', image_url: { url: dataUrl } },
-          { type: 'text', text: DOC_PROMPT },
-        ],
-      },
-    ],
-    temperature: 0,
-    max_tokens: MAX_TOKENS,
-    stream: false,
-    top_p: 0.8,
-    presence_penalty: 0,
-    repetition_penalty: 1,
-    // 关闭 thinking：上游对该 checkpoint 的对齐条件之一；vLLM 读取该字段，Ollama 忽略未知字段
-    chat_template_kwargs: { enable_thinking: false },
-  };
+/** 对话历史保留的最大轮数（首问首答固定保留，其余超出部分从最早开始丢） */
+export const MAX_HISTORY_TURNS = 12;
+/** 对话单轮输出上限（问表格内容时需要比识别更长的回答） */
+const CHAT_MAX_TOKENS = 2048;
 
+type ChatPart = { type: 'text'; text: string } | { type: 'image_url'; image_url: { url: string } };
+interface ApiMessage {
+  role: 'user' | 'assistant';
+  content: string | ChatPart[];
+}
+
+/** 统一的 chat/completions 调用（识别与对话共用），返回正文与结束原因 */
+async function requestChat(
+  payload: Record<string, unknown>,
+  settings: VlmSettings,
+  signal?: AbortSignal,
+): Promise<{ content: string; finish?: string }> {
   let resp: Response;
   try {
     resp = await fetch(chatUrl(settings.endpoint), {
@@ -175,16 +168,112 @@ export async function recognizeWithVlm(page: Page, settings: VlmSettings, signal
   if (!resp.ok) {
     const body = await resp.text().catch(() => '');
     if (resp.status === 404) throw new Error(`模型「${settings.model}」不存在，请先执行 ollama pull ${settings.model}`);
-    if (resp.status === 400 && /context length/i.test(body)) throw new Error('页面内容超出模型上下文，请调小 max_tokens 或裁小页面');
+    if (resp.status === 400 && /context length/i.test(body)) throw new Error('超出模型上下文，请缩短问题或清空对话后重开');
     throw new Error(`推理服务返回 HTTP ${resp.status}：${body.slice(0, 200) || '无响应体'}`);
   }
 
   const data = (await resp.json().catch(() => null)) as unknown;
-  const raw = pickContent(data).trim();
-  if (!raw) throw new Error('模型返回空结果，请确认图片包含可识别文字');
+  const content = pickContent(data).trim();
   const finish = (data as { choices?: { finish_reason?: string }[] } | null)?.choices?.[0]?.finish_reason;
+  return { content, finish };
+}
+
+/** 对话通用采样参数：与识别一致走贪心，避免 0.8B 模型自由发挥 */
+function chatSampling(model: string, maxTokens: number) {
+  return {
+    model: model.trim(),
+    temperature: 0,
+    max_tokens: maxTokens,
+    stream: false,
+    top_p: 0.8,
+    presence_penalty: 0,
+    repetition_penalty: 1,
+    // 关闭 thinking：上游对该 checkpoint 的对齐条件之一；vLLM 读取该字段，Ollama 忽略未知字段
+    chat_template_kwargs: { enable_thinking: false },
+  };
+}
+
+/** 识别一页：整页文档解析，返回 Markdown */
+export async function recognizeWithVlm(page: Page, settings: VlmSettings, signal?: AbortSignal): Promise<VlmOcrOutcome> {
+  const dataUrl = await renderPageImage(page);
+  const { content, finish } = await requestChat(
+    {
+      ...chatSampling(settings.model, MAX_TOKENS),
+      messages: [
+        {
+          role: 'user',
+          content: [
+            { type: 'image_url', image_url: { url: dataUrl } },
+            { type: 'text', text: DOC_PROMPT },
+          ],
+        },
+      ],
+    },
+    settings,
+    signal,
+  );
+  if (!content) throw new Error('模型返回空结果，请确认图片包含可识别文字');
   if (finish === 'length') throw new Error('输出被截断（触达 max_tokens），建议降低页面复杂度后重试');
   // 上游 finalize_document：重复尾部清理 + 数学定界符归一化 + OTSL 表格转 HTML
-  const text = finalizeDocument(raw);
+  const text = finalizeDocument(content);
   return { text, lines: text.split('\n').filter((l) => l.trim()).length };
+}
+
+/**
+ * 裁剪对话历史，控制上下文长度但不丢图片。
+ * 首问（含图片）与首答固定保留 —— 图片只在首条消息里出现，丢掉它模型就看不到文档了。
+ * 其余只保留最近的部分，并保证裁剪后仍以 user 开头、角色交替。
+ */
+export function trimChatHistory(turns: ChatTurn[], maxTurns = MAX_HISTORY_TURNS): ChatTurn[] {
+  const keepTail = Math.max(1, maxTurns * 2 - 2);
+  if (turns.length <= 2 + keepTail) return turns;
+  const head = turns.slice(0, 2);
+  let tail = turns.slice(-keepTail);
+  // 丢掉的区间末尾可能是 assistant，导致 tail 以 assistant 开头 —— 它的提问者丢了，一并去掉
+  while (tail.length > 0 && tail[0].role === 'assistant') tail = tail.slice(1);
+  return [...head, ...tail];
+}
+
+/**
+ * 构造请求消息。图片只注入首条 user 消息一次：实测后续轮次不带图仍能引用图中内容
+ * （历史里的图片 token 持续有效），每轮仅增约 30~50 tokens。
+ */
+export function buildChatMessages(turns: ChatTurn[], imageDataUrl: string): ApiMessage[] {
+  if (turns.length === 0) throw new Error('对话为空');
+  if (turns[0].role !== 'user') throw new Error('对话必须以用户提问开始');
+  const messages: ApiMessage[] = [
+    {
+      role: 'user',
+      content: [
+        { type: 'image_url', image_url: { url: imageDataUrl } },
+        { type: 'text', text: turns[0].content },
+      ],
+    },
+  ];
+  for (const turn of turns.slice(1)) {
+    messages.push({ role: turn.role, content: turn.content });
+  }
+  return messages;
+}
+
+export interface ChatParams {
+  /** 完整历史，最后一条是待回答的用户提问 */
+  turns: ChatTurn[];
+  /** 当前页渲染图（dataURL），只在首条消息里使用 */
+  imageDataUrl: string;
+  settings: VlmSettings;
+  signal?: AbortSignal;
+}
+
+/** 就当前页问答一轮，返回助手回答 */
+export async function chatWithVlm({ turns, imageDataUrl, settings, signal }: ChatParams): Promise<string> {
+  const messages = buildChatMessages(trimChatHistory(turns), imageDataUrl);
+  const { content, finish } = await requestChat(
+    { ...chatSampling(settings.model, CHAT_MAX_TOKENS), messages },
+    settings,
+    signal,
+  );
+  if (!content) throw new Error('模型没有返回内容，请换个问法或清空对话重试');
+  // 对话回答不套用文档后处理，只标记截断
+  return finish === 'length' ? `${content}\n\n（回答被截断，可继续追问剩余部分）` : content;
 }

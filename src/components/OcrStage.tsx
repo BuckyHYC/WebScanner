@@ -6,6 +6,7 @@ import { prepareOcr, recognizePageByEngine } from '../utils/ocrEngine';
 import { loadOcrPrefs, saveOcrPrefs, type OcrEngine, type OcrPrefs } from '../utils/ocrSettings';
 import { checkVlmService, type ServiceStatus } from '../utils/xiaomiOcr';
 import { downloadBlob } from '../utils/exporter';
+import ChatPanel from './ChatPanel';
 
 interface Props {
   page: Page;
@@ -42,6 +43,8 @@ export default function OcrStage({ page }: Props) {
   const [showConfig, setShowConfig] = useState(false);
   const [svc, setSvc] = useState<ServiceStatus | null>(null);
   const [checking, setChecking] = useState(false);
+  /** 右栏视图：识别结果 / 文档对话（对话仅本机 VLM 引擎可用） */
+  const [mode, setMode] = useState<'result' | 'chat'>('result');
 
   const ocr = page.ocr ?? null;
   const geoKey = JSON.stringify([page.corners, page.rotation, page.flipH, page.flipV, page.fineRotate, page.polygon, page.filter, page.eraseMask]);
@@ -225,6 +228,9 @@ export default function OcrStage({ page }: Props) {
   const exportingActive = useStore((s) => !!s.exporting?.active);
   const text = ocr?.text ?? '';
   const isVlm = prefs.engine === 'vlm';
+  /** 浏览器内 OCR 没有生成能力，切回该引擎时对话视图自动退回识别结果 */
+  const activeMode: 'result' | 'chat' = isVlm ? mode : 'result';
+  const chatRounds = (page.chat ?? []).filter((t) => t.role === 'user').length;
 
   /** 服务状态指示点 */
   const dotClass = checking ? 'bg-slate-500 animate-pulse' : !svc ? 'bg-slate-600' : svc.ok ? 'bg-emerald-500' : 'bg-rose-500';
@@ -297,23 +303,51 @@ export default function OcrStage({ page }: Props) {
                   />
                 </label>
                 <p className="text-[11px] leading-relaxed text-slate-500">
-                  需本机运行 Ollama（<code className="text-slate-400">ollama serve</code>）并已拉取该模型。浏览器直连本机服务时，Ollama 需设置{' '}
-                  <code className="text-slate-400">OLLAMA_ORIGINS=*</code>。
+                  需本机运行 Ollama（<code className="text-slate-400">ollama serve</code>）并已拉取该模型。站点域名必须在该服务的{' '}
+                  <code className="text-slate-400">OLLAMA_ORIGINS</code> 白名单里，否则会被跨域拦截。
                 </p>
               </div>
             )}
           </div>
         )}
 
-        {/* 操作区 */}
-        <div className="p-3 flex flex-wrap gap-2 border-b border-ink-800">
-          <button className="btn-primary flex-1 min-w-[7rem]" disabled={!!busy || exportingActive} onClick={() => void recognizeCurrent()}>
-            {busy === '识别中…' ? '识别中…' : ocr?.text ? '重新识别' : '开始识别'}
-          </button>
-          <button className="btn-panel" disabled={!!busy || exportingActive} onClick={() => void recognizeAll()}>
-            全部页识别
-          </button>
-        </div>
+        {/* 右栏视图切换：对话仅本机 VLM 引擎提供 */}
+        {isVlm && (
+          <div className="px-3 pt-2">
+            <div className="flex rounded-lg bg-ink-800 p-0.5 text-xs">
+              <button
+                className={`flex-1 rounded-md px-2 py-1.5 transition-colors ${
+                  activeMode === 'result' ? 'bg-ink-700 text-slate-100 font-medium' : 'text-slate-400 hover:text-slate-200'
+                }`}
+                onClick={() => setMode('result')}
+              >
+                识别文字
+              </button>
+              <button
+                className={`flex-1 rounded-md px-2 py-1.5 transition-colors ${
+                  activeMode === 'chat' ? 'bg-ink-700 text-slate-100 font-medium' : 'text-slate-400 hover:text-slate-200'
+                }`}
+                onClick={() => setMode('chat')}
+              >
+                文档对话{chatRounds > 0 ? `（${chatRounds}）` : ''}
+              </button>
+            </div>
+          </div>
+        )}
+
+        {activeMode === 'chat' ? (
+          <ChatPanel page={page} vlm={prefs.vlm} disabled={!!busy || exportingActive} />
+        ) : (
+          <>
+            {/* 操作区 */}
+            <div className="p-3 flex flex-wrap gap-2 border-b border-ink-800">
+              <button className="btn-primary flex-1 min-w-[7rem]" disabled={!!busy || exportingActive} onClick={() => void recognizeCurrent()}>
+                {busy === '识别中…' ? '识别中…' : ocr?.text ? '重新识别' : '开始识别'}
+              </button>
+              <button className="btn-panel" disabled={!!busy || exportingActive} onClick={() => void recognizeAll()}>
+                全部页识别
+              </button>
+            </div>
 
         {/* 结果区 */}
         <div className="flex-1 min-h-0 flex flex-col p-3 gap-2">
@@ -359,7 +393,9 @@ export default function OcrStage({ page }: Props) {
               )}
             </div>
           )}
-        </div>
+            </div>
+          </>
+        )}
       </div>
     </div>
   );
