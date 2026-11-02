@@ -1,0 +1,31 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512" width="512" height="512"><defs>
+    <linearGradient id="bgA" x1="0.1" y1="0" x2="0.9" y2="1">
+      <stop offset="0" stop-color="#18293f"/><stop offset="0.55" stop-color="#0f1823"/><stop offset="1" stop-color="#0a0e13"/>
+    </linearGradient>
+    <linearGradient id="bgB" x1="0.1" y1="0" x2="0.9" y2="1">
+      <stop offset="0" stop-color="#54a0ff"/><stop offset="0.5" stop-color="#2f81f7"/><stop offset="1" stop-color="#1b53b4"/>
+    </linearGradient>
+    <linearGradient id="beam" x1="0" y1="0" x2="1" y2="0">
+      <stop offset="0" stop-color="#2f81f7" stop-opacity="0"/>
+      <stop offset="0.18" stop-color="#2f81f7" stop-opacity="0.65"/>
+      <stop offset="0.5" stop-color="#8ec6ff" stop-opacity="0.95"/>
+      <stop offset="0.82" stop-color="#2f81f7" stop-opacity="0.65"/>
+      <stop offset="1" stop-color="#2f81f7" stop-opacity="0"/>
+    </linearGradient>
+    <linearGradient id="fold" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0" stop-color="#eaf3ff"/><stop offset="1" stop-color="#bcd6fb"/>
+    </linearGradient>
+    <clipPath id="pageClip"><rect x="140" y="104" width="232" height="304" rx="22"/></clipPath>
+  </defs><rect width="512" height="512" rx="112" fill="url(#bgB)"/>
+  <g transform="rotate(-4 256 256)">
+    <path d="M150 104 h150 l72 72 v220 a22 22 0 0 1 -22 22 h-200 a22 22 0 0 1 -22 -22 v-270 a22 22 0 0 1 22 -22 z" fill="#ffffff"/>
+    <path d="M300 104 l72 72 h-72 z" fill="url(#fold)"/>
+    <g fill="#a9c3e2">
+      <rect x="178" y="212" width="158" height="14" rx="7"/>
+      <rect x="178" y="242" width="126" height="14" rx="7"/>
+      <rect x="178" y="272" width="144" height="14" rx="7"/>
+      <rect x="178" y="338" width="112" height="14" rx="7"/>
+    </g>
+    <rect x="150" y="300" width="222" height="24" fill="#1f5fce" opacity="0.86"/>
+    <rect x="150" y="324" width="222" height="10" fill="#1f5fce" opacity="0.25"/>
+  </g></svg>
