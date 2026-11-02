@@ -153,8 +153,36 @@ async function main() {
   fs.writeFileSync(path.join(PUBLIC, 'icons', 'icon-512.png'), await renderPng(browser, rounded, 512, true));
   fs.writeFileSync(path.join(PUBLIC, 'icons', 'maskable-512.png'), await renderPng(browser, maskable, 512, false));
   fs.writeFileSync(path.join(PUBLIC, 'apple-touch-icon.png'), await renderPng(browser, fullBleed, 180, false));
+  // favicon.ico：16+32 双尺寸（PNG 载荷），兜住只认 .ico 的浏览器/WebView
+  const png16 = await renderPng(browser, rounded, 16, true);
+  const png32 = await renderPng(browser, rounded, 32, true);
+  fs.writeFileSync(path.join(PUBLIC, 'favicon.ico'), pngsToIco([[16, png16], [32, png32]]));
   await browser.close();
-  console.log(`已导出方案 ${which}：public/favicon.svg + public/icons/*.png + public/apple-touch-icon.png`);
+  console.log(`已导出方案 ${which}：public/favicon.svg + favicon.ico + public/icons/*.png + public/apple-touch-icon.png`);
+}
+
+/** 把多张 PNG 打包成 ICO（Vista+ 支持 PNG 载荷，无需 BMP 编码） */
+function pngsToIco(items) {
+  const header = Buffer.alloc(6);
+  header.writeUInt16LE(0, 0); // reserved
+  header.writeUInt16LE(1, 2); // type: 1 = icon
+  header.writeUInt16LE(items.length, 4);
+  let offset = 6 + items.length * 16;
+  const entries = [];
+  for (const [size, png] of items) {
+    const e = Buffer.alloc(16);
+    e.writeUInt8(size >= 256 ? 0 : size, 0); // width
+    e.writeUInt8(size >= 256 ? 0 : size, 1); // height
+    e.writeUInt8(0, 2); // 调色板数
+    e.writeUInt8(0, 3); // reserved
+    e.writeUInt16LE(1, 4); // color planes
+    e.writeUInt16LE(32, 6); // bits per pixel
+    e.writeUInt32LE(png.length, 8);
+    e.writeUInt32LE(offset, 12);
+    offset += png.length;
+    entries.push(e);
+  }
+  return Buffer.concat([header, ...entries, ...items.map(([, png]) => png)]);
 }
 
 main().catch((e) => {
